@@ -1,0 +1,7 @@
+algoritmo,celulas_ocupadas_50x50,celulas_footprint_50x50,area_footprint_50x50,pureza_media_50x50,instancias_cobertas_50x50,celulas_empate_50x50,celulas_ocupadas_15x15,celulas_footprint_15x15,area_footprint_15x15,pureza_media_15x15,instancias_cobertas_15x15,celulas_empate_15x15
+knn,17,17,1.0,1.0,70,17,16,15,0.9375,1.0,132,15
+tree,17,17,1.0,1.0,70,17,16,15,0.9375,1.0,132,15
+nb,17,17,1.0,1.0,70,17,16,15,0.9375,1.0,132,15
+logreg,17,17,1.0,1.0,70,17,16,15,0.9375,1.0,132,15
+svm_rbf,17,17,1.0,1.0,70,17,16,15,0.9375,1.0,132,15
+rf,17,17,1.0,1.0,70,17,16,15,0.9375,1.0,132,15

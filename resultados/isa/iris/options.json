@@ -1,0 +1,28 @@
+{
+  "perf": {
+    "MaxPerf": true,
+    "AbsPerf": true,
+    "epsilon": 0.5
+  },
+  "general": {
+    "betaThreshold": 0.55
+  },
+  "auto": {
+    "preproc": true
+  },
+  "bound": {
+    "flag": true
+  },
+  "norm": {
+    "flag": true
+  },
+  "pilot": {
+    "analytic": false,
+    "ntries": 5,
+    "seed": 42
+  },
+  "trace": {
+    "PI": 0.55,
+    "parallel": false
+  }
+}

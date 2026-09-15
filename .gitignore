@@ -1,0 +1,23 @@
+# ambiente
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# pasta descartavel de comparacao com o PyHard
+comparacao_pyhard/
+
+# IDEs e editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyproject/
+.ipynb_checkpoints/
+
+# sistema
+.DS_Store
+Thumbs.db
+desktop.ini
