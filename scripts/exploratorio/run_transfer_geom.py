@@ -10,7 +10,7 @@ random_state=42 n_jobs=1) em tres condicoes: (a) todas as medidas,
 
 import pandas as pd
 
-from run_transfer import NOMES, avaliar, carregar
+from scripts.exploratorio.run_transfer import NOMES, avaliar, carregar
 
 pd.set_option("display.max_columns", None)
 pd.set_option("display.width", 200)

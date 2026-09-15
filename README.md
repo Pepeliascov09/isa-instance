@@ -123,9 +123,19 @@ python -m isaspace.ui.app
 
 Abre o navegador em <http://localhost:5006>. Opções: `--no-show` (não abre o
 navegador), `--port N` e `--root PASTA` (outra pasta no formato de
-`resultados/isa/`). Se o servidor for reiniciado ou a conexão cair, a página
-mostra uma faixa vermelha pedindo para recarregar; até lá ela parece viva mas
-não responde a nada além da troca de abas.
+`resultados/isa/`).
+
+## Problemas comuns
+
+- **A página parou de responder** (a troca de abas funciona, mas seletor,
+  sidebar, cabeçalho e gráficos não mudam): a sessão do Bokeh com o servidor
+  foi perdida, por exemplo porque o servidor foi reiniciado. Recarregue com F5
+  ou abra uma aba nova. A faixa vermelha no topo da página indica exatamente
+  isso; sem ela a página morta é indistinguível de uma viva.
+- **Depois de alterar o código do app**, feche a aba e abra uma nova em vez de
+  reaproveitar a antiga: o HTML da página traz um token de sessão que expira em
+  300 s, e uma aba restaurada do cache tenta reconectar com esse token vencido,
+  o que deixa a página só com a moldura do template e nada dentro.
 
 ## Testes
 
@@ -146,19 +156,19 @@ python scripts/verify_browser.py --url http://localhost:5006/ --desconexao 5012
 - `isaspace/measures.py`: as medidas de dificuldade por instância (`ClassificationMeasures` do pyhard).
 - `isaspace/performance.py`: desempenho *out-of-fold* do portfólio de seis classificadores.
 - `isaspace/pipeline.py`: tabela unificada por instância (`feature_*`, `algo_*`, `proba_*`, `class`, `n_wrong`, `ih`).
-- `isaspace/projection.py`: projeção 2D simples (winsorização, z-score, PCA) usada nos experimentos iniciais.
-- `isaspace/footprint.py`: *footprints* aproximadas por grade, dos experimentos iniciais.
+- `isaspace/projection.py` e `isaspace/footprint.py`: a projeção por PCA e as *footprints* por grade da versão anterior, mantidas para referência histórica e substituídas pelo PILOT e pelo TRACE do pyispace.
 - `isaspace/isa.py`: ponte com o pyispace: `to_isa_metadata` (descarte de degeneradas) e `run_isa` (PILOT + TRACE, gravação MATILDA e guarda-corpo do sentido de "bom").
-- `isaspace/app.py` e `isaspace/app_v2.py`: primeira interface (scatter ligado a um painel de detalhes), superada por `isaspace/ui/`; os dois arquivos são idênticos e ficam como histórico.
+- `isaspace/app.py` e `isaspace/app_v2.py`: a interface de uma aba só (scatter ligado a um painel de detalhes) anterior à casca de quatro abas em `isaspace/ui/app.py`; os dois arquivos são idênticos e ficam como histórico.
 - `isaspace/ui/loader.py`: leitor da pasta MATILDA que devolve um único `IsaResult`.
 - `isaspace/ui/app.py`: a interface das quatro abas.
 - `scripts/apply_pyispace_patch.py`: patch do pyispace para Python 3.11.
 - `scripts/run_isa_all.py`: PILOT + TRACE para cada dataset.
 - `scripts/build_data_space.py`: espaço de dados (PCA) para a interface.
 - `scripts/verify_browser.py`: teste de regressão da interface no navegador.
+- `scripts/exploratorio/`: os dez scripts de experimento da primeira fase (demo, diagnóstico, contraste com meta-features via PyMFE, transferência entre datasets, e as versões antigas de projeção por PCA e *footprint* por grade); rodam da raiz com `python -m scripts.exploratorio.<nome>` e seus números estão em `resumo.md`.
+- `run_table.py`: gera `resultados/table_<nome>.csv` (passo 1 de "Como gerar os dados"); é o único script da primeira fase que continua no pipeline.
 - `patches/README.md`: descrição do bug do pyispace e do patch.
 - `resultados/`: `table_<nome>.csv`, `isa/<nome>/` (saídas MATILDA) e PNGs dos experimentos iniciais.
-- `run_*.py`: scripts de experimento da primeira fase (medidas, contraste com meta-features, transferência entre datasets); os números estão em `resumo.md`.
 - `resumo.md`: resumo técnico dos resultados da primeira fase.
 - `requirements.txt`: dependências com versões fixas.
 

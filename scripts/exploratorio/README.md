@@ -1,0 +1,1 @@
+Scripts exploratorios da primeira fase (set/2026), anteriores ao pyispace: demos, diagnosticos, contraste com meta-features (PyMFE), transferencia entre datasets e as versoes antigas de projecao (PCA) e footprint (grade), hoje substituidas por PILOT e TRACE; os numeros que produziram estao em resumo.md e rodam da raiz com `python -m scripts.exploratorio.<nome>`.
