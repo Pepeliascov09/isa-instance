@@ -26,7 +26,9 @@ O formato de cada arquivo esta em docs/output_format.md.
 Colunas de IsResult.instances (indice Row, rotulos em texto):
   z_1, z_2                     coordinates.csv
   source                       coluna source do metadata, se houver
-  feature_<f>, feature_<f>_z   feature_raw.csv, feature_process.csv (so as do SIFTED)
+  feature_<f>                  valores de entrada de TODAS as features do metadata
+                               (as do SIFTED vem de feature_raw.csv, iguais ao metadata)
+  feature_<f>_z                feature_process.csv (so as do SIFTED)
   algo_<a>                     algorithm_raw.csv
   algo_<a>_bin                 algorithm_bin.csv (bool: bom no desempenho observado)
   algo_<a>_svm                 algorithm_svm.csv (bool: bom segundo o PYTHIA)
@@ -109,6 +111,7 @@ class IsResult:
     algos: list                      # ordem do instancespace (indices dos portfolios)
     features: list                   # features escolhidas pelo SIFTED
     features_input: list             # features do metadata, na ordem do sifted_report
+    features_all: list               # features do metadata.csv, na ordem do arquivo
     annotations: dict                # {coluna em instances: "numerica" | "categorica"}
     annotation_renames: dict         # {nome no metadata: nome em instances}
     source_column: str | None        # "source" se o metadata tinha source
@@ -144,6 +147,11 @@ class IsResult:
     @property
     def n_features_dropped(self) -> int:
         return len(self.features_input) - len(self.features)
+
+    @property
+    def features_fora_pilot(self) -> list:
+        """Features do metadata que o SIFTED nao passou ao PILOT."""
+        return [f for f in self.features_all if f not in self.features]
 
     @property
     def empty_footprints(self) -> list:
@@ -323,7 +331,8 @@ def _valor(linha, coluna) -> float:
 
 
 def _ler_metadata(path: Path):
-    """(DataFrame indexado pelo rotulo, coluna source ou None, colunas de anotacao)."""
+    """(DataFrame indexado pelo rotulo, coluna source ou None, colunas de anotacao,
+    [(coluna, nome) das features])."""
     cols = list(pd.read_csv(_exigir(path), nrows=0).columns)
     baixo = [str(c).casefold() for c in cols]
     if baixo.count("instances") != 1:
@@ -336,7 +345,8 @@ def _ler_metadata(path: Path):
         raise ValueError("metadata.csv: coluna instances com rotulo vazio")
     anot = [c for c, b in zip(cols, baixo)
             if c not in (col_inst, col_src) and not b.startswith(("feature_", "algo_"))]
-    return meta, col_src, anot
+    feats = [(c, c[len("feature_"):]) for c, b in zip(cols, baixo) if b.startswith("feature_")]
+    return meta, col_src, anot, feats
 
 
 # --------------------------------------------------------------------------- #
@@ -393,7 +403,7 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
                                                  "portfolio_svm.csv")
 
     # --- metadata: source e anotacoes, pelo rotulo
-    meta, col_src, col_anot = _ler_metadata(path / "metadata.csv")
+    meta, col_src, col_anot, col_feats = _ler_metadata(path / "metadata.csv")
     if meta.index.equals(base):
         meta_al = meta
     elif meta.index.is_unique and base.isin(meta.index).all():
@@ -401,6 +411,10 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
     else:
         raise ValueError(f"metadata.csv: rotulos nao casam com coordinates.csv "
                          f"({len(meta)} linhas contra {len(base)})")
+    # features que o SIFTED nao passou ao PILOT: valores de entrada, do metadata
+    for col, nome in col_feats:
+        if nome not in features:
+            instances[f"feature_{nome}"] = pd.to_numeric(meta_al[col], errors="coerce")
     source_column = None
     if col_src is not None:
         instances["source"] = _como_categoria(meta_al[col_src])
@@ -502,6 +516,7 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
         algos=algos,
         features=features,
         features_input=list(sifted["feature"]),
+        features_all=[nome for _, nome in col_feats],
         annotations=annotations,
         annotation_renames=renames,
         source_column=source_column,

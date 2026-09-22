@@ -1,4 +1,4 @@
-"""Teste de regressao da interface (isaspace.ui.app) num navegador real.
+"""Teste de regressao da interface legada (isaspace.ui.app_legacy) num navegador real.
 
 Controla um Edge ou Chrome headless pelo DevTools Protocol (so stdlib +
 tornado, que ja e dependencia do Bokeh) e, contra um servidor JA RODANDO,
@@ -386,7 +386,7 @@ async def cenario_titulo(nav, rel, datasets):
 async def cenario_desconexao(nav, rel, porta):
     """Servidor proprio: carrega, mata o servidor, espera a faixa vermelha."""
     proc = subprocess.Popen(
-        [sys.executable, "-m", "isaspace.ui.app", "--port", str(porta), "--no-show"],
+        [sys.executable, "-m", "isaspace.ui.app_legacy", "--port", str(porta), "--no-show"],
         cwd=str(RAIZ), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(60):

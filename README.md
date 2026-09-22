@@ -117,13 +117,20 @@ Para regenerar, na raiz do projeto e com o `.venv` ativo:
 
 ## Como abrir o app
 
+O app atual (Panel 1.x) roda no `.venv-isa` (Python 3.12) e lê as saídas do
+`instancespace` em `resultados/is/` (geradas por `scripts/run_is_all.py`; formato
+em `docs/output_format.md`):
+
 ```
-python -m isaspace.ui.app
+.venv-isa/bin/python -m isaspace.ui.app
 ```
 
 Abre o navegador em <http://localhost:5006>. Opções: `--no-show` (não abre o
 navegador), `--port N` e `--root PASTA` (outra pasta no formato de
-`resultados/isa/`).
+`resultados/is/`).
+
+O app anterior (Panel 0.14, pyispace, `resultados/isa/`) continua em
+`isaspace/ui/app_legacy.py` e roda no `.venv`: `python -m isaspace.ui.app_legacy`.
 
 ## Problemas comuns
 
@@ -159,8 +166,11 @@ python scripts/verify_browser.py --url http://localhost:5006/ --desconexao 5012
 - `isaspace/projection.py` e `isaspace/footprint.py`: a projeção por PCA e as *footprints* por grade da versão anterior, mantidas para referência histórica e substituídas pelo PILOT e pelo TRACE do pyispace.
 - `isaspace/isa.py`: ponte com o pyispace: `to_isa_metadata` (descarte de degeneradas) e `run_isa` (PILOT + TRACE, gravação MATILDA e guarda-corpo do sentido de "bom").
 - `isaspace/app.py` e `isaspace/app_v2.py`: a interface de uma aba só (scatter ligado a um painel de detalhes) anterior à casca de quatro abas em `isaspace/ui/app.py`; os dois arquivos são idênticos e ficam como histórico.
-- `isaspace/ui/loader.py`: leitor da pasta MATILDA que devolve um único `IsaResult`.
-- `isaspace/ui/app.py`: a interface das quatro abas.
+- `isaspace/ui/loader.py`: leitor da pasta MATILDA (pyispace) que devolve um único `IsaResult`.
+- `isaspace/ui/app_legacy.py`: a interface de quatro abas anterior (Panel 0.14, sobre `loader.py`).
+- `isaspace/engine.py`: roda o `instancespace` e grava `resultados/is/<nome>/` (`docs/output_format.md`).
+- `isaspace/ui/loader_is.py`: leitor da saída do engine (`IsResult`).
+- `isaspace/ui/app.py`: a interface das quatro abas (Panel 1.x, sobre `loader_is.py`).
 - `scripts/apply_pyispace_patch.py`: patch do pyispace para Python 3.11.
 - `scripts/run_isa_all.py`: PILOT + TRACE para cada dataset.
 - `scripts/build_data_space.py`: espaço de dados (PCA) para a interface.

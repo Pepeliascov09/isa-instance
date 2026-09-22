@@ -205,6 +205,17 @@ def test_pythia_selection(resultado):
     assert (sel.loc[~com, "selection1"] == padrao).all()
 
 
+def test_features_fora_do_pilot_vem_do_metadata(resultado):
+    meta = pd.read_csv(resultado.path / "metadata.csv", dtype={"instances": str}).set_index("instances")
+    todas = [c[len("feature_"):] for c in meta.columns if c.startswith("feature_")]
+    assert resultado.features_all == todas
+    assert set(resultado.features_fora_pilot) == set(todas) - set(resultado.features)
+    fora = resultado.sifted_report.set_index("feature").loc[resultado.features_fora_pilot, "status"]
+    assert (fora != "kept").all()
+    for f in todas:
+        assert (resultado.instances[f"feature_{f}"].to_numpy() == meta[f"feature_{f}"].to_numpy()).all()
+
+
 def test_pilot_r2(resultado):
     r2 = resultado.pilot_r2
     assert list(r2["variable"]) == resultado.features + resultado.algos
@@ -420,7 +431,8 @@ def test_sintetico_footprint_no_formato_antigo_e_recusada(pasta_sintetica):
         load_is_output(pasta_sintetica)
 
 
-def test_loader_is_nao_importa_backend():
-    fonte = Path(loader_is.__file__).read_text()
+@pytest.mark.parametrize("modulo", ["loader_is.py", "app.py"])
+def test_interface_nao_importa_backend(modulo):
+    fonte = (Path(loader_is.__file__).parent / modulo).read_text()
     for proibido in ("instancespace", "sklearn", "pyispace", "pyhard"):
         assert f"import {proibido}" not in fonte and f"from {proibido}" not in fonte
