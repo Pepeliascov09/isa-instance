@@ -13,7 +13,11 @@ O que muda em relacao ao loader antigo:
 - portfolio.csv (PRELIM) e 1-based e portfolio_svm.csv (PYTHIA) e 0-based com
   -1 = nenhum: os dois viram nome de algoritmo, None para nenhum;
 - anotacoes do metadata.csv (toda coluna que nao e instances, source, feature_*
-  nem algo_*) entram em instances com o tipo detectado em `annotations`;
+  nem algo_*) entram em instances; o tipo vem de annotations.json quando a
+  pasta o tem (declarado) e da heuristica _tipo_anotacao quando nao
+  (inferido), com a origem em `annotation_origins`;
+- degenerate_report.csv e feature_info.csv, quando existem, e a tabela
+  features_table() com uma linha por feature recebida;
 - CLOISTER: bounds.csv e bounds_prunned.csv como Poligono;
 - coordinates.csv (z do PILOT) desenha; coordinates_trace.csv (z que o TRACE
   usou, so quando houve jitter) fica em `coordinates_trace`;
@@ -49,6 +53,8 @@ ROW = "Row"
 TIPOS_FOOTPRINT = ("good", "best")
 NUMERICA = "numerica"
 CATEGORICA = "categorica"
+INTEIRA = "numerica_inteira"     # numerica com valores inteiros (contagens)
+TIPOS_ANOTACAO = (CATEGORICA, NUMERICA, INTEIRA)
 OK, VAZIA, SUSPEITA = "ok", "vazia", "suspeita"
 COLUNAS_FOOTPRINT = ["Row", "Part", "Ring", "Vertex", "z_1", "z_2"]
 _BOOL = {"true": True, "false": False, "1": True, "0": False, "1.0": True, "0.0": False}
@@ -60,6 +66,24 @@ def _area(anel) -> float:
     """Area pela formula do laco (sem sinal); anel (k, 2) sem repetir o 1o vertice."""
     x, y = anel[:, 0], anel[:, 1]
     return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2)
+
+
+def e_numerica(tipo: str) -> bool:
+    return tipo in (NUMERICA, INTEIRA)
+
+
+def _no_anel(pts, anel, tol):
+    """(dentro ou na borda, na borda) de cada ponto em relacao a um anel."""
+    x, y = pts[:, :1], pts[:, 1:2]
+    x1, y1 = anel[None, :, 0], anel[None, :, 1]
+    x2, y2 = np.roll(anel[:, 0], -1)[None, :], np.roll(anel[:, 1], -1)[None, :]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cruza = ((y1 > y) != (y2 > y)) & (x < (x2 - x1) * (y - y1) / (y2 - y1) + x1)
+        dx, dy = x2 - x1, y2 - y1
+        l2 = dx * dx + dy * dy
+        t = np.clip(((x - x1) * dx + (y - y1) * dy) / np.where(l2 == 0, 1, l2), 0, 1)
+    borda = (((x1 + t * dx - x) ** 2 + (y1 + t * dy - y) ** 2) <= tol * tol).any(axis=1)
+    return (cruza.sum(axis=1) % 2 == 1) | borda, borda
 
 
 @dataclass
@@ -76,6 +100,16 @@ class Poligono:
     @property
     def n_vertices(self) -> int:
         return len(self.exterior)
+
+    def contem(self, pts, tol=1e-9) -> np.ndarray:
+        """Pontos (n, 2) dentro ou na borda do poligono e fora dos furos (a
+        borda do furo conta como dentro), como o pointwise_covers do TRACE."""
+        pts = np.asarray(pts, dtype=float)
+        dentro, _ = _no_anel(pts, self.exterior, tol)
+        for furo in self.furos:
+            no_furo, borda = _no_anel(pts, furo, tol)
+            dentro &= ~(no_furo & ~borda)
+        return dentro
 
 
 @dataclass
@@ -100,6 +134,13 @@ class Footprint:
     def area(self) -> float:
         return sum(p.area for p in self.poligonos)
 
+    def contem(self, pts) -> np.ndarray:
+        pts = np.asarray(pts, dtype=float)
+        dentro = np.zeros(len(pts), dtype=bool)
+        for p in self.poligonos:
+            dentro |= p.contem(pts)
+        return dentro
+
 
 @dataclass
 class IsResult:
@@ -114,6 +155,7 @@ class IsResult:
     features_all: list               # features do metadata.csv, na ordem do arquivo
     annotations: dict                # {coluna em instances: "numerica" | "categorica"}
     annotation_renames: dict         # {nome no metadata: nome em instances}
+    annotation_origins: dict         # {coluna em instances: "declarado" | "inferido" | "forcado"}
     source_column: str | None        # "source" se o metadata tinha source
     footprints: dict                 # {(algo, tipo): Footprint}, todos os algos x tipos
     footprint_space: Footprint       # TRACE: todas as instancias
@@ -135,6 +177,8 @@ class IsResult:
     run_info: dict
     run_options: dict
     pi: float                        # trace.purity efetivo
+    degenerate_report: pd.DataFrame | None   # feature, var_bruta, iqr, motivo (antes do engine)
+    feature_info: pd.DataFrame | None        # feature, family
 
     @property
     def n(self) -> int:
@@ -152,6 +196,66 @@ class IsResult:
     def features_fora_pilot(self) -> list:
         """Features do metadata que o SIFTED nao passou ao PILOT."""
         return [f for f in self.features_all if f not in self.features]
+
+    @property
+    def anotacoes_inferidas(self) -> list:
+        return [c for c, o in self.annotation_origins.items() if o == "inferido"]
+
+    def instancias_na_footprint(self, fp) -> list:
+        """Rotulos das instancias dentro (ou na borda) da footprint, no z que o
+        TRACE usou (coordinates_trace quando houve jitter)."""
+        z = self.coordinates_trace if self.coordinates_trace is not None else self.instances[["z_1", "z_2"]]
+        return list(z.index[fp.contem(z.to_numpy())])
+
+    def features_table(self) -> pd.DataFrame:
+        """Uma linha por feature recebida: as degeneradas de degenerate_report
+        (descartadas antes do engine) e as do sifted_report.
+
+        Colunas: feature, [family], status, motivo, substituida_por,
+        max_abs_rho, algoritmo_rho, pval, r2_pilot. Ordem: a de feature_info
+        quando existe; senao a do metadata, com as degeneradas no fim.
+        """
+        rep = self.sifted_report
+        sif = self.run_options.get("sifted", {})
+        lim_rho, lim_p = sif.get("rho"), sif.get("pval")
+        r2 = self.pilot_r2[self.pilot_r2["kind"] == "feature"].set_index("variable")["r2"]
+        linhas = []
+        if self.degenerate_report is not None:
+            for d in self.degenerate_report.itertuples(index=False):
+                linhas.append({"feature": str(d.feature), "status": "dropped_degenerate",
+                               "motivo": str(d.motivo)})
+        for x in rep.itertuples(index=False):
+            cluster = None if pd.isna(x.cluster) else int(x.cluster)
+            if x.status == "kept":
+                motivo = f"mantida (cluster {cluster})" if cluster else "mantida"
+            elif x.status == "dropped_correlation":
+                motivo = (f"nenhum algoritmo com |rho| ≥ {lim_rho} e p ≤ {lim_p} "
+                          f"(maior |rho| {abs(x.rho):.2f}, p = {x.pval:.2g})")
+            elif x.status == "dropped_redundancy":
+                motivo = f"redundante no cluster {cluster}: ficou {x.kept_instead}"
+            elif x.status == "dropped_preprocessing":
+                motivo = "removida pelo PREPROCESSING do instancespace"
+            else:
+                motivo = "motivo não reconstruído (ver run_info.avisos)"
+            linhas.append({
+                "feature": x.feature, "status": x.status, "motivo": motivo,
+                "substituida_por": x.kept_instead if x.status == "dropped_redundancy" else None,
+                "max_abs_rho": abs(x.rho) if pd.notna(x.rho) else np.nan,
+                "algoritmo_rho": x.rho_algo, "pval": x.pval,
+                "r2_pilot": float(r2[x.feature]) if x.status == "kept" and x.feature in r2 else np.nan,
+            })
+        colunas = ["feature", "status", "motivo", "substituida_por", "max_abs_rho",
+                   "algoritmo_rho", "pval", "r2_pilot"]
+        tabela = pd.DataFrame(linhas).reindex(columns=colunas)
+        if self.feature_info is not None:
+            familia = dict(zip(self.feature_info["feature"].astype(str), self.feature_info["family"]))
+            tabela.insert(1, "family", tabela["feature"].map(familia))
+            ordem = list(self.feature_info["feature"].astype(str))
+        else:
+            ordem = list(self.features_all)
+        posicao = {f: i for i, f in enumerate(ordem)}
+        tabela["_ordem"] = tabela["feature"].map(lambda f: posicao.get(f, len(ordem)))
+        return tabela.sort_values("_ordem", kind="stable").drop(columns="_ordem").reset_index(drop=True)
 
     @property
     def empty_footprints(self) -> list:
@@ -302,6 +406,10 @@ def _footprint_especial(path: Path, tipo: str, registro: dict, pi: float) -> Foo
     )
 
 
+def _ler_opcional(path: Path, dtype=None) -> pd.DataFrame | None:
+    return pd.read_csv(path, dtype=dtype) if path.is_file() else None
+
+
 def _tipo_anotacao(serie: pd.Series) -> str:
     """categorica: texto, bool ou numero inteiro com no maximo 2 valores (codigo
     binario, como class 0/1); numerica: o resto."""
@@ -420,7 +528,13 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
         instances["source"] = _como_categoria(meta_al[col_src])
         source_column = "source"
     tipos_forcados = dict(annotation_types or {})
-    annotations, renames = {}, {}
+    declarados = {}
+    if (path / "annotations.json").is_file():
+        declarados = json.loads((path / "annotations.json").read_text())
+        estranhas = sorted(set(declarados) - set(col_anot))
+        if estranhas:
+            raise ValueError(f"annotations.json declara colunas que nao sao anotacoes: {estranhas}")
+    annotations, renames, origens = {}, {}, {}
     for col in col_anot:
         destino = col
         while destino in instances.columns or destino == ROW:
@@ -428,10 +542,21 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
         if destino != col:
             renames[col] = destino
         serie = meta_al[col]
-        tipo = tipos_forcados.get(col, _tipo_anotacao(serie))
-        if tipo not in (NUMERICA, CATEGORICA):
+        if col in tipos_forcados:
+            tipo, origens[destino] = tipos_forcados[col], "forcado"
+        elif col in declarados:
+            tipo, origens[destino] = declarados[col], "declarado"
+        else:
+            tipo, origens[destino] = _tipo_anotacao(serie), "inferido"
+        if tipo not in TIPOS_ANOTACAO:
             raise ValueError(f"tipo de anotacao invalido para {col}: {tipo!r}")
-        instances[destino] = _como_categoria(serie) if tipo == CATEGORICA else serie
+        if tipo == CATEGORICA:
+            instances[destino] = _como_categoria(serie)
+        else:
+            numeros = pd.to_numeric(serie, errors="coerce")
+            if (numeros.isna() & serie.notna()).any():
+                raise ValueError(f"anotacao {col} ({origens[destino]} {tipo}) tem valores nao numericos")
+            instances[destino] = numeros
         annotations[destino] = tipo
 
     # --- TRACE
@@ -519,6 +644,7 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
         features_all=[nome for _, nome in col_feats],
         annotations=annotations,
         annotation_renames=renames,
+        annotation_origins=origens,
         source_column=source_column,
         footprints=footprints,
         footprint_space=fp_space,
@@ -540,4 +666,6 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
         run_info=run_info,
         run_options=run_options,
         pi=pi,
+        degenerate_report=_ler_opcional(path / "degenerate_report.csv", {"feature": str}),
+        feature_info=_ler_opcional(path / "feature_info.csv", {"feature": str}),
     )

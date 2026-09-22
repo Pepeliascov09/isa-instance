@@ -1,0 +1,2 @@
+feature,var_bruta,iqr,motivo
+F1,0.0004990630679660373,0.0,IQR = 0: bound_outliers (mediana +- 5*IQR) colapsa a coluna numa constante

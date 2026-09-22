@@ -11,7 +11,9 @@ CLOISTER, TRACE) estagio por estagio sobre um metadata.csv e grava a pasta que
 - ``coordinates.csv`` reescrito com o z do PILOT sem correcao e, so quando o
   jitter e aplicado, ``coordinates_trace.csv`` com o z que o TRACE usou;
 - ``metadata.csv``: copia byte a byte do metadata de entrada (anotacoes e
-  source inclusos);
+  source inclusos) e, se existirem ao lado dele, ``annotations.json`` (tipos
+  declarados das anotacoes, validados antes de rodar), ``degenerate_report.csv``
+  e ``feature_info.csv``;
 - ``run_options.json``: as opcoes efetivas, ``dataclasses.asdict`` de
   ``InstanceSpaceOptions`` (``InstanceSpaceOptions.from_dict`` le de volta);
 - ``sifted_report.csv``, ``sifted_correlations.csv``, ``sifted_silhouette.csv``
@@ -71,6 +73,8 @@ from instancespace.stages.pythia import PythiaStage
 from instancespace.stages.sifted import SiftedStage
 from instancespace.stages.trace import TraceStage
 
+from isaspace.ui.loader_is import INTEIRA, NUMERICA, TIPOS_ANOTACAO
+
 # ordem de _BUILTIN_STAGE_ORDER do instancespace; PYTHIA e CLOISTER sao a mesma
 # onda e podem rodar em qualquer ordem entre si
 ESTAGIOS = [
@@ -129,6 +133,13 @@ ARQUIVOS_EXTRAS = (
     "pythia_selection.csv", "footprint_space.csv", "footprint_hard.csv",
     "run_info.json",
 )
+# arquivos opcionais ao lado do metadata de entrada, copiados se existirem
+AUXILIARES = {
+    "annotations.json": None,                                  # validado a parte
+    "degenerate_report.csv": ("feature", "var_bruta", "iqr", "motivo"),
+    "feature_info.csv": ("feature", "family"),
+}
+ARQUIVOS_EXTRAS += tuple(AUXILIARES)
 # pythia_proba.csv: coluna <algo> = pr0_sub (padrao), <algo>_hat = pr0_hat
 SUFIXO_HAT = "_hat"
 # SiftedStage.evaluate_cluster testa k = 3 .. (n de features apos a correlacao) - 1
@@ -181,6 +192,48 @@ def _ler_metadata(path):
     if meta is None:
         raise ValueError(f"metadata invalido ({path}): " + (" | ".join(erros) or "sem detalhe"))
     return meta
+
+
+def _colunas_de_anotacao(colunas):
+    """Colunas do metadata que nao sao instances, source, feature_* nem algo_*."""
+    return [c for c in colunas if c.casefold() not in ("instances", "source")
+            and not c.casefold().startswith(("feature_", "algo_"))]
+
+
+def _ler_auxiliares(metadata_path):
+    """Valida os arquivos auxiliares ao lado do metadata; devolve
+    ({nome: caminho} dos presentes, tipos declarados). Erro vira ValueError
+    antes de rodar o pipeline."""
+    pasta = Path(metadata_path).parent
+    presentes = {n: pasta / n for n in AUXILIARES if (pasta / n).is_file()}
+    for nome, obrigatorias in AUXILIARES.items():
+        if nome in presentes and obrigatorias is not None:
+            cols = list(pd.read_csv(presentes[nome], nrows=0).columns)
+            faltam = [c for c in obrigatorias if c not in cols]
+            if faltam:
+                raise ValueError(f"{nome}: faltam as colunas {faltam}")
+    tipos = {}
+    if "annotations.json" in presentes:
+        try:
+            tipos = json.loads(presentes["annotations.json"].read_text())
+        except ValueError as exc:
+            raise ValueError(f"annotations.json invalido: {exc}") from exc
+        if not isinstance(tipos, dict):
+            raise ValueError("annotations.json tem de ser um objeto {anotacao: tipo}")
+        meta = pd.read_csv(metadata_path)
+        anotacoes = _colunas_de_anotacao(list(meta.columns))
+        for col, tipo in tipos.items():
+            if tipo not in TIPOS_ANOTACAO:
+                raise ValueError(f"annotations.json: tipo {tipo!r} de {col!r} nao e um de {TIPOS_ANOTACAO}")
+            if col not in anotacoes:
+                raise ValueError(f"annotations.json: {col!r} nao e uma coluna de anotacao do metadata")
+            if tipo in (NUMERICA, INTEIRA):
+                v = pd.to_numeric(meta[col], errors="coerce")
+                if (v.isna() & meta[col].notna()).any():
+                    raise ValueError(f"annotations.json: {col!r} declarada {tipo} tem valores nao numericos")
+                if tipo == INTEIRA and (np.mod(v.dropna(), 1) != 0).any():
+                    raise ValueError(f"annotations.json: {col!r} declarada {tipo} tem valores nao inteiros")
+    return presentes, tipos
 
 
 def _json_default(obj):
@@ -605,6 +658,7 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
     _checar_pasta(outdir, metadata_path)
     opts = build_options(options)
     meta = _ler_metadata(metadata_path)
+    auxiliares, tipos_declarados = _ler_auxiliares(metadata_path)
     feats_entrada = [str(f) for f in meta.feature_names]
     nomes_algo = [str(a) for a in meta.algorithm_names]
     colidem = sorted(a for a in nomes_algo if a.endswith(SUFIXO_HAT) and a[:-len(SUFIXO_HAT)] in nomes_algo)
@@ -658,6 +712,8 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
     labels = [str(x) for x in model.data.inst_labels]
     _gravar_coordenadas(outdir, labels, z_pilot, z_corrigido)
     shutil.copyfile(metadata_path, outdir / "metadata.csv")
+    for nome, origem in auxiliares.items():
+        shutil.copyfile(origem, outdir / nome)
     (outdir / "run_options.json").write_text(
         json.dumps(dataclasses.asdict(opts), indent=2, default=_json_default)
     )
@@ -687,6 +743,11 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
         "n_features_selecionadas": len(model.data.feat_labels),
         "algoritmos": [str(a) for a in model.data.algo_labels],
         "tem_source": meta.instance_sources is not None,
+        "tipos_anotacao": {
+            "arquivo": "annotations.json" if "annotations.json" in auxiliares else None,
+            "declarados": tipos_declarados,
+        },
+        "arquivos_auxiliares": sorted(auxiliares),
         "tempos_s": tempos,
         "trace_robustez": robustez,
         "arquivos_footprint": _arquivos_footprint(outdir, model.data.algo_labels),

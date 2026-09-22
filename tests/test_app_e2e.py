@@ -57,7 +57,9 @@ PLOTS_JS = r"""() => {
                mapper: fc && fc.transform ? fc.transform.type : null});
     }
     const tb = m.toolbar;
+    const xr = m.x_range;
     out.push({titulo: m.title.text || "", rs,
+              fatores: xr && xr.factors ? [...xr.factors].map(String) : null,
               ativo: tb && tb.active_drag && tb.active_drag.type ? tb.active_drag.type : null});
   }
   return out;
@@ -76,6 +78,34 @@ TELA_JS = r"""(prefixo) => {
       const pts = [...data.z_1].map((x, i) => [cb.left + v.frame.x_scale.compute(x),
                                                cb.top + v.frame.y_scale.compute(data.z_2[i])]);
       return {frame: [cb.left + fb.x0, cb.top + fb.y0, cb.left + fb.x1, cb.top + fb.y1], pts};
+    }
+  }
+  return null;
+}"""
+# rotulos Row das instancias selecionadas no scatter da aba Instance Space
+SELECIONADAS_JS = r"""(prefixo) => {
+  for (const v of Bokeh.index.all_views()) {
+    const m = v.model;
+    if (!m || !v.frame || !m.title || !(m.title.text || "").startsWith(prefixo)) continue;
+    for (const r of m.renderers) {
+      const ds = r.data_source;
+      if (!ds || !ds.data) continue;
+      const data = ds.data instanceof Map ? Object.fromEntries(ds.data) : ds.data;
+      if (!('Row' in data)) continue;
+      return [...ds.selected.indices].map(i => String(data.Row[i]));
+    }
+  }
+  return null;
+}"""
+# colunas de todas as tabelas (Tabulator) do documento que tenham `coluna`
+TABELA_JS = r"""(coluna) => {
+  for (const m of Bokeh.documents[0]._all_models.values()) {
+    if (m.type !== 'ColumnDataSource' || !m.data) continue;
+    const data = m.data instanceof Map ? Object.fromEntries(m.data) : m.data;
+    if (coluna in data && 'status' in data) {
+      const out = {};
+      for (const k of Object.keys(data)) out[k] = [...data[k]].map(v => v === null ? null : String(v));
+      return out;
     }
   }
   return null;
@@ -249,7 +279,7 @@ class Tela:
 
 @pytest.fixture
 def tela(navegador, servidor):
-    ctx = navegador.new_context(viewport={"width": 1500, "height": 1000})
+    ctx = navegador.new_context(viewport={"width": 1500, "height": 1000}, accept_downloads=True)
     page = ctx.new_page()
     erros = []
     page.on("pageerror", lambda e: erros.append(str(e)))
@@ -396,3 +426,54 @@ def test_usar_filtro_como_selecao(tela, dataset):
     t.esperar(lambda: (t.pontos("Footprints") or {}).get("hi") == k, "Footprint Performance nao destacou")
     t.aba("Distributions")
     t.esperar(lambda: _n_distribuicoes(t) == k, "Distributions nao mostrou a selecao")
+
+
+def test_agrupar_por_class_no_iris_produz_3_grupos(tela):
+    t, url = tela
+    t.abrir(url, "iris")
+    t.aba("Distributions")
+    t.page.get_by_label("Agrupar por", exact=True).select_option(label="class")
+    plot = t.esperar(lambda: next((p for p in t.plots() if "por class" in p["titulo"]
+                                   and p["fatores"]), None), "distribuicao por class nao apareceu")
+    classes = sorted(pd.read_csv(RAIZ / "resultados" / "table_iris.csv")["class"].unique())
+    assert len(plot["fatores"]) == 3                      # 3 grupos -> violino por padrao
+    assert [f.split(" (n=")[0] for f in plot["fatores"]] == classes
+    assert all("(n=50)" in f for f in plot["fatores"])
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_csv_exportado_da_selecao_tem_as_linhas_selecionadas(tela, dataset):
+    t, url = tela
+    t.abrir(url, dataset)
+    t.lasso_com_pontos()
+    n = t.esperar(lambda: t.n_status(), "o lasso nao selecionou nada")
+    rotulos = t.esperar(lambda: (r := t.page.evaluate(SELECIONADAS_JS, ESPACO)) and len(r) == n and r,
+                        "rotulos selecionados nao conferem com o status")
+    botao = t.page.get_by_role("button", name=f"Exportar seleção ({n})")
+    t.esperar(lambda: botao.is_enabled(), "botao de exportar a selecao nao habilitou")
+    with t.page.expect_download() as info:
+        botao.click()
+    csv = pd.read_csv(info.value.path(), dtype={"instances": str})
+    assert info.value.suggested_filename == f"{dataset}_selecao.csv"
+    assert len(csv) == n and sorted(csv["instances"]) == sorted(rotulos)
+    meta = pd.read_csv(PASTA_IS / dataset / "metadata.csv", nrows=1)
+    features = [c for c in meta.columns if c.startswith("feature_")]
+    algos = [c for c in meta.columns if c.startswith("algo_")]
+    for col in ["instances", "class", "ih", "n_wrong", *features, *algos, "z_1", "z_2",
+                "NumGoodAlgos", "IsBetaEasy", "best_algo", "best_algo_svm"]:
+        assert col in csv.columns, col
+
+
+def test_aba_features_do_iris_lista_todas_as_features_e_as_degeneradas(tela):
+    t, url = tela
+    t.abrir(url, "iris")
+    t.aba("Features")
+    dados = t.esperar(lambda: t.page.evaluate(TABELA_JS, "feature"), "tabela de features nao apareceu")
+    tabela = pd.read_csv(RAIZ / "resultados" / "table_iris.csv", nrows=1)
+    recebidas = [c[len("feature_"):] for c in tabela.columns if c.startswith("feature_")]
+    assert sorted(dados["feature"]) == sorted(recebidas) and len(dados["feature"]) == 19
+    degeneradas = {f for f, st in zip(dados["feature"], dados["status"]) if st == "dropped_degenerate"}
+    assert degeneradas == {"kDN", "MV", "CB", "N1", "Harmfulness"}
+    assert t.page.get_by_text("19 features recebidas").count() == 1
+    assert any(p["titulo"].startswith("rho de Pearson") for p in t.plots())      # heatmap
+    assert any("k usado = 6" in p["titulo"] for p in t.plots())                  # silhueta

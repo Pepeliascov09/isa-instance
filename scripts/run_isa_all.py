@@ -68,7 +68,7 @@ def rodar(nome):
 
     table = pd.read_csv(tabela_csv, index_col=0)
     t0 = time.perf_counter()
-    metadata, info = to_isa_metadata(table)
+    metadata, info = to_isa_metadata(table, outdir=outdir)
     t_meta = time.perf_counter() - t0
     print(
         f"metadata: {metadata.shape[0]} instancias, "

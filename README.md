@@ -113,7 +113,17 @@ Para regenerar, na raiz do projeto e com o `.venv` ativo:
    os nomes para os outros).
 3. `python scripts/build_data_space.py [nome ...]`: gera
    `resultados/isa/<nome>/data_space.csv` (PCA 2D dos atributos originais) para
-   o scatter da esquerda da aba Instance Space (padrão: os quatro).
+   o scatter da esquerda da aba Instance Space do app legado (padrão: os quatro).
+
+Para o app atual (`instancespace`):
+
+4. `python scripts/build_metadata.py [nome ...]` (no `.venv`): regrava só o
+   `resultados/isa/<nome>/metadata.csv` e, ao lado dele, `annotations.json`
+   (tipos das anotações), `degenerate_report.csv` (medidas descartadas antes do
+   engine) e `feature_info.csv` (família de cada medida), sem rodar o pyispace.
+5. `.venv-isa/bin/python scripts/run_is_all.py [nome ...]`: roda o
+   `instancespace` e grava `resultados/is/<nome>/` (formato em
+   `docs/output_format.md`; padrão: os quatro).
 
 ## Como abrir o app
 
@@ -146,14 +156,26 @@ O app anterior (Panel 0.14, pyispace, `resultados/isa/`) continua em
 
 ## Testes
 
-`scripts/verify_browser.py` é o teste de regressão da interface. Ele controla
+Com o `.venv-isa` (pytest e Playwright; o Chromium do Playwright se instala com
+`.venv-isa/bin/python -m playwright install chromium`):
+
+```
+.venv-isa/bin/python -m pytest tests/                 # tudo, cerca de 2 min
+.venv-isa/bin/python -m pytest tests/ -m "not e2e"    # só os rápidos, segundos
+```
+
+`tests/test_loader_is.py` e `tests/test_engine.py` testam o loader e a validação
+do engine sobre `resultados/is/`; `tests/test_app_e2e.py` sobe o app e o usa num
+Chromium real, com uma página nova por teste, nos quatro datasets.
+
+`scripts/verify_browser.py` é o teste de regressão da interface legada. Ele controla
 um Edge ou Chrome headless pelo DevTools Protocol e, contra um app já servido,
 troca datasets, percorre as abas nos dois sentidos, mexe nos controles de cada
 aba e repete o caminho "abas antes do dataset", conferindo título, cabeçalho,
 sidebar e painel a cada passo:
 
 ```
-python -m isaspace.ui.app --no-show
+python -m isaspace.ui.app_legacy --no-show
 python scripts/verify_browser.py --url http://localhost:5006/ --desconexao 5012
 ```
 
@@ -173,6 +195,10 @@ python scripts/verify_browser.py --url http://localhost:5006/ --desconexao 5012
 - `isaspace/ui/app.py`: a interface das quatro abas (Panel 1.x, sobre `loader_is.py`).
 - `scripts/apply_pyispace_patch.py`: patch do pyispace para Python 3.11.
 - `scripts/run_isa_all.py`: PILOT + TRACE para cada dataset.
+- `scripts/build_metadata.py`: metadata do IC7 e arquivos auxiliares, sem o pyispace.
+- `scripts/run_is_all.py`: `instancespace` para cada dataset, em `resultados/is/`.
+- `docs/output_format.md`: contrato da pasta de saída entre o engine e a interface.
+- `tests/`: testes do loader, do engine e de ponta a ponta do app.
 - `scripts/build_data_space.py`: espaço de dados (PCA) para a interface.
 - `scripts/verify_browser.py`: teste de regressão da interface no navegador.
 - `scripts/exploratorio/`: os dez scripts de experimento da primeira fase (demo, diagnóstico, contraste com meta-features via PyMFE, transferência entre datasets, e as versões antigas de projeção por PCA e *footprint* por grade); rodam da raiz com `python -m scripts.exploratorio.<nome>` e seus números estão em `resumo.md`.

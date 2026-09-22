@@ -23,7 +23,7 @@ sys.path.insert(0, str(RAIZ))
 from isaspace.ui import loader_is  # noqa: E402
 from isaspace.ui.loader import _split_polygons  # noqa: E402  (loader antigo)
 from isaspace.ui.loader_is import (  # noqa: E402
-    CATEGORICA, NUMERICA, OK, VAZIA, load_is_output,
+    CATEGORICA, INTEIRA, NUMERICA, OK, VAZIA, Poligono, load_is_output,
 )
 
 PASTA_IS = RAIZ / "resultados" / "is"
@@ -107,7 +107,7 @@ def test_anotacoes_batem_com_a_tabela_via_row_original(resultado):
     assert (inst["n_wrong"].to_numpy() == t["n_wrong"].to_numpy()).all()
     assert resultado.annotations["class"] == CATEGORICA
     assert resultado.annotations["ih"] == NUMERICA
-    assert resultado.annotations["n_wrong"] == NUMERICA
+    assert resultado.annotations["n_wrong"] == INTEIRA          # declarada em annotations.json
 
 
 def test_linhas_de_coordinates_igual_metadata(resultado):
@@ -272,6 +272,84 @@ def test_loader_novo_recusa_a_pasta_do_pyispace():
         load_is_output(antiga)
 
 
+
+
+# --------------------------------------------------------------------------- #
+# tipos declarados, degenerate_report e aba Features
+# --------------------------------------------------------------------------- #
+def test_tipos_declarados_vem_do_annotations_json(resultado):
+    declarados = json.loads((resultado.path / "annotations.json").read_text())
+    assert declarados == {"class": CATEGORICA, "ih": NUMERICA, "n_wrong": INTEIRA}
+    assert resultado.run_info["tipos_anotacao"]["declarados"] == declarados
+    for col, tipo in declarados.items():
+        assert resultado.annotations[col] == tipo
+        assert resultado.annotation_origins[col] == "declarado"
+    # row_original nao esta declarada: tipo pela heuristica, marcado como inferido
+    assert resultado.annotation_origins["row_original"] == "inferido"
+    assert resultado.anotacoes_inferidas == ["row_original"]
+    assert pd.api.types.is_numeric_dtype(resultado.instances["n_wrong"])
+    assert resultado.instances["class"].map(type).eq(str).all()
+
+
+def test_tipo_forcado_sobrepoe_declaracao_e_heuristica():
+    path = _pasta("hill-valley")
+    r = load_is_output(path, annotation_types={"row_original": CATEGORICA, "class": NUMERICA})
+    assert r.annotations["row_original"] == CATEGORICA and r.annotation_origins["row_original"] == "forcado"
+    assert r.annotations["class"] == NUMERICA and r.annotation_origins["class"] == "forcado"
+    assert pd.api.types.is_numeric_dtype(r.instances["class"])       # "0"/"1" -> 0/1
+
+
+def _features_recebidas(nome):
+    tabela = pd.read_csv(RAIZ / "resultados" / f"table_{nome}.csv", index_col=0, nrows=1)
+    return [c[len("feature_"):] for c in tabela.columns if c.startswith("feature_")]
+
+
+def test_degenerate_report_cobre_o_que_nao_chegou_ao_engine(resultado):
+    deg = resultado.degenerate_report
+    assert deg is not None and list(deg.columns) == ["feature", "var_bruta", "iqr", "motivo"]
+    recebidas = _features_recebidas(resultado.name)
+    assert set(deg["feature"]) == set(recebidas) - set(resultado.features_all)
+    assert not set(deg["feature"]) & set(resultado.features_all)
+    assert deg["motivo"].str.len().gt(0).all()
+
+
+def test_degenerate_report_do_iris():
+    r = load_is_output(_pasta("iris"))
+    assert list(r.degenerate_report["feature"]) == ["kDN", "MV", "CB", "N1", "Harmfulness"]
+
+
+def test_features_table(resultado):
+    t = resultado.features_table()
+    recebidas = _features_recebidas(resultado.name)
+    assert list(t["feature"]) == recebidas                  # ordem do feature_info.csv
+    assert set(t["status"]) <= {"kept", "dropped_degenerate", "dropped_correlation", "dropped_redundancy"}
+    assert (t["status"] == "dropped_degenerate").sum() == len(resultado.degenerate_report)
+    mantidas = t[t["status"] == "kept"]
+    assert list(mantidas["feature"]) == resultado.features
+    assert mantidas["r2_pilot"].notna().all() and t.loc[t["status"] != "kept", "r2_pilot"].isna().all()
+    red = t[t["status"] == "dropped_redundancy"]
+    assert red["substituida_por"].isin(resultado.features).all()
+    assert t.loc[t["status"] != "dropped_degenerate", "max_abs_rho"].ge(0).all()
+    derivadas = {"CL", "CLD", "DS", "DCP", "TD_U", "TD_P"}
+    assert set(t.loc[t["family"] == "model_derived", "feature"]) == derivadas & set(recebidas)
+    assert set(t["family"]) == {"model_derived", "geometric"}
+
+
+def test_pertinencia_na_footprint_bate_com_o_trace(resultado):
+    """A pertinencia do loader reproduz os elementos que o TRACE contou."""
+    for nome, fp in (("space", resultado.footprint_space), ("hard", resultado.footprint_hard)):
+        esperado = resultado.run_info["footprints_especiais"][nome]["elementos"]
+        obtido = len(resultado.instancias_na_footprint(fp)) if fp.poligonos else 0
+        assert obtido == esperado, nome
+
+
+def test_poligono_contem_com_furo_e_bordas():
+    quadrado = Poligono(np.array([[0, 0], [4, 0], [4, 4], [0, 4]], float),
+                        [np.array([[1, 1], [2, 1], [2, 2], [1, 2]], float)])
+    pts = np.array([[3, 3], [1.5, 1.5], [0, 2], [4, 4], [1, 1.5], [5, 5], [-0.1, 2]])
+    assert quadrado.contem(pts).tolist() == [True, False, True, True, True, False, False]
+
+
 # --------------------------------------------------------------------------- #
 # pasta sintetica
 # --------------------------------------------------------------------------- #
@@ -415,6 +493,35 @@ def test_sintetico_selecao_com_algoritmo_desconhecido_e_erro(pasta_sintetica):
     f.write_text(f.read_text().replace("delta,A,A", "delta,Z,A"))
     with pytest.raises(ValueError, match="desconhecidos"):
         load_is_output(pasta_sintetica)
+
+
+
+
+def test_sintetico_sem_arquivos_auxiliares(pasta_sintetica):
+    r = load_is_output(pasta_sintetica)
+    assert set(r.annotation_origins.values()) == {"inferido"}
+    assert r.degenerate_report is None and r.feature_info is None
+    t = r.features_table()
+    assert list(t["feature"]) == ["f1", "f2"] and "family" not in t.columns
+
+
+@pytest.mark.parametrize("declaracao, erro", [
+    ({"grupo": NUMERICA}, "nao numericos"),          # 'x', 'y' nao sao numeros
+    ({"peso": "texto"}, "invalido"),
+    ({"feature_f1": NUMERICA}, "nao sao anotacoes"),
+])
+def test_sintetico_declaracao_invalida_e_erro(pasta_sintetica, declaracao, erro):
+    (pasta_sintetica / "annotations.json").write_text(json.dumps(declaracao))
+    with pytest.raises(ValueError, match=erro):
+        load_is_output(pasta_sintetica)
+
+
+def test_sintetico_declaracao_valida(pasta_sintetica):
+    (pasta_sintetica / "annotations.json").write_text(json.dumps({"peso": INTEIRA, "z_1": NUMERICA}))
+    r = load_is_output(pasta_sintetica)
+    assert r.annotations["peso"] == INTEIRA and r.annotation_origins["peso"] == "declarado"
+    assert r.annotations["ann_z_1"] == NUMERICA and r.annotation_origins["ann_z_1"] == "declarado"
+    assert r.annotation_origins["grupo"] == "inferido"
 
 
 def test_sintetico_erros_explicitos(pasta_sintetica):

@@ -7,7 +7,10 @@ Duas funcoes publicas:
   indice ``instances`` com os rotulos "1".."n" em texto (o mesmo layout do
   ``Workspace`` do pyhard). Leva junto ``row_original`` e as anotacoes
   ``class``, ``ih`` e ``n_wrong``, que o pyispace ignora e o instancespace
-  (``isaspace.engine``) preserva como anotacoes.
+  (``isaspace.engine``) preserva como anotacoes. Com ``outdir``, grava o
+  metadata.csv e, ao lado, os arquivos auxiliares que o engine copia
+  (``write_metadata``: annotations.json, degenerate_report.csv,
+  feature_info.csv; formato em docs/output_format.md).
 - ``run_isa``: monta as opcoes, roda ``train_is`` (PILOT + TRACE), grava os
   CSVs no layout do pyhard via ``pyispace.utils.scriptcsv`` e verifica que o
   significado de "bom" nao foi invertido.
@@ -37,6 +40,12 @@ ANOTACOES = ("class", "ih", "n_wrong")
 # rotulo da classe: o valor nominal do alvo no OpenML, sempre texto
 # (pipeline.build_instance_table grava pd.Series(y).astype(str))
 ROTULO = "class"
+# tipo declarado de cada anotacao (annotations.json): o CSV nao guarda tipo e
+# "1"/"2" voltaria como numero
+TIPOS_ANOTACAO = {"class": "categorica", "ih": "numerica", "n_wrong": "numerica_inteira"}
+# familia das medidas do pyhard (feature_info.csv): as que dependem de um
+# modelo ajustado sao model_derived; as demais, geometric
+MODEL_DERIVED = ("CL", "CLD", "DS", "DCP", "TD_U", "TD_P")
 
 # Diferenca maxima tolerada entre a taxa "boa" do pyispace (Ybin) e a acuracia
 # real de cada algoritmo. Acima disso o mais provavel e perf.MaxPerf invertido.
@@ -129,7 +138,7 @@ def _filtrar_degeneradas(F, min_var):
 
 def to_isa_metadata(
     table, drop_degenerate=True, min_var=1e-8, proba_as_performance=True,
-    annotations=ANOTACOES,
+    annotations=ANOTACOES, outdir=None,
 ):
     """Converte a tabela por instancia no metadata que ``train_is`` consome.
 
@@ -148,6 +157,8 @@ def to_isa_metadata(
     annotations : colunas da tabela copiadas para o metadata como anotacoes
         (padrao ``class``, ``ih``, ``n_wrong``). Todas tem de existir na
         tabela. ``class`` vai como texto: o rotulo nominal do OpenML.
+    outdir : se dado, grava o metadata e os arquivos auxiliares nessa pasta
+        (``write_metadata``).
 
     Retorna
     -------
@@ -162,8 +173,12 @@ def to_isa_metadata(
           com feature, var_bruta, iqr, var_pos_preproc e motivo),
           ``performance_source`` ("proba" ou "acerto"), ``algos``,
           ``annotations``, ``row_original`` (Series instances -> indice
-          original, para o join da interface) e ``acerto_real`` (taxa de
-          acerto 0/1 por algoritmo, usada pelo guarda-corpo de ``run_isa``).
+          original, para o join da interface), ``acerto_real`` (taxa de
+          acerto 0/1 por algoritmo, usada pelo guarda-corpo de ``run_isa``),
+          ``annotation_types`` (tipos declarados, TIPOS_ANOTACAO),
+          ``degenerate_report`` (DataFrame feature, var_bruta, iqr, motivo)
+          e ``feature_info`` (DataFrame feature, family; todas as medidas da
+          tabela).
     """
     feature_cols = [c for c in table.columns if c.startswith(_FEATURE)]
     algo_cols = [c for c in table.columns if c.startswith(_ALGO)]
@@ -235,11 +250,44 @@ def to_isa_metadata(
         "annotations": annotations,
         "row_original": row_original,
         "acerto_real": acerto_real,
+        "annotation_types": {c: TIPOS_ANOTACAO[c] for c in annotations if c in TIPOS_ANOTACAO},
+        "degenerate_report": pd.DataFrame(
+            [{"feature": d["feature"][len(_FEATURE):], "var_bruta": d["var_bruta"],
+              "iqr": d["iqr"], "motivo": d["motivo"]} for d in dropped],
+            columns=["feature", "var_bruta", "iqr", "motivo"],
+        ),
+        "feature_info": pd.DataFrame({
+            "feature": [c[len(_FEATURE):] for c in feature_cols],
+            "family": ["model_derived" if c[len(_FEATURE):] in MODEL_DERIVED else "geometric"
+                       for c in feature_cols],
+        }),
     }
     # copia do guarda-corpo viajando junto com o DataFrame, para run_isa
     # funcionar mesmo sem receber a tabela original
     metadata.attrs["acerto_real"] = acerto_real
+    if outdir is not None:
+        write_metadata(metadata, info, outdir)
     return metadata, info
+
+
+def write_metadata(metadata, info, outdir):
+    """Grava metadata.csv e, ao lado, os arquivos que o engine copia se existirem.
+
+    - annotations.json: {anotacao: "categorica" | "numerica" | "numerica_inteira"};
+    - degenerate_report.csv: medidas descartadas antes do engine (feature,
+      var_bruta, iqr, motivo); so o cabecalho quando nenhuma caiu;
+    - feature_info.csv: feature, family de todas as medidas recebidas.
+    Devolve os caminhos gravados.
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    caminhos = [outdir / n for n in ("metadata.csv", "annotations.json",
+                                     "degenerate_report.csv", "feature_info.csv")]
+    metadata.to_csv(caminhos[0])
+    caminhos[1].write_text(json.dumps(info["annotation_types"], indent=2) + "\n")
+    info["degenerate_report"].to_csv(caminhos[2], index=False)
+    info["feature_info"].to_csv(caminhos[3], index=False)
+    return caminhos
 
 
 # --------------------------------------------------------------------------- #

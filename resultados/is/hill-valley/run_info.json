@@ -1,6 +1,6 @@
 {
   "gerado_por": "isaspace.engine.run_instancespace",
-  "gerado_em": "2026-09-22T18:42:09",
+  "gerado_em": "2026-09-22T20:19:08",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
   "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/hill-valley/metadata.csv",
@@ -17,17 +17,30 @@
     "rf"
   ],
   "tem_source": false,
+  "tipos_anotacao": {
+    "arquivo": "annotations.json",
+    "declarados": {
+      "class": "categorica",
+      "ih": "numerica",
+      "n_wrong": "numerica_inteira"
+    }
+  },
+  "arquivos_auxiliares": [
+    "annotations.json",
+    "degenerate_report.csv",
+    "feature_info.csv"
+  ],
   "tempos_s": {
     "PREPROCESSING": 0.001,
-    "PRELIM": 0.23,
-    "SIFTED": 1.245,
-    "PILOT": 1.603,
+    "PRELIM": 0.228,
+    "SIFTED": 1.22,
+    "PILOT": 1.595,
     "deteccao_duplicatas": 0.002,
-    "PYTHIA": 26.711,
-    "CLOISTER": 0.003,
-    "TRACE": 3.003,
-    "build_total": 32.806,
-    "escrita": 0.039
+    "PYTHIA": 26.221,
+    "CLOISTER": 0.004,
+    "TRACE": 3.037,
+    "build_total": 32.317,
+    "escrita": 0.04
   },
   "trace_robustez": {
     "limiar": 1e-06,
@@ -134,11 +147,14 @@
     "algorithm_process.csv",
     "algorithm_raw.csv",
     "algorithm_svm.csv",
+    "annotations.json",
     "beta_easy.csv",
     "bounds.csv",
     "bounds_prunned.csv",
     "coordinates.csv",
     "coordinates_trace.csv",
+    "degenerate_report.csv",
+    "feature_info.csv",
     "feature_process.csv",
     "feature_raw.csv",
     "footprint_hard.csv",

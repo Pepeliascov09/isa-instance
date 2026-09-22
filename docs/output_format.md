@@ -42,6 +42,9 @@ tem outro formato e não segue este contrato.
 | `run_info.json` | eng | — | sempre |
 | `run_options.json` | eng | — | sempre |
 | `metadata.csv` | eng (cópia) | instância de entrada | sempre |
+| `annotations.json` | eng (cópia) | — | se existir ao lado do metadata de entrada |
+| `degenerate_report.csv` | eng (cópia) | feature descartada antes do engine | se existir ao lado do metadata de entrada |
+| `feature_info.csv` | eng (cópia) | feature recebida | se existir ao lado do metadata de entrada |
 | `coordinates.csv` | eng | instância | sempre |
 | `coordinates_trace.csv` | eng | instância | só com jitter |
 | `projection_matrix.csv` | sc | eixo (z_1, z_2) | sempre |
@@ -80,6 +83,8 @@ Objeto JSON.
 | `n_features_entrada`, `n_features_selecionadas` | int | features do metadata e escolhidas pelo SIFTED |
 | `algoritmos` | list[str] | ordem canônica dos algoritmos |
 | `tem_source` | bool | se o metadata tinha coluna `source` |
+| `tipos_anotacao` | dict | `{"arquivo": "annotations.json" ou null, "declarados": {anotação: tipo}}` |
+| `arquivos_auxiliares` | list[str] | quais de `annotations.json`, `degenerate_report.csv` e `feature_info.csv` foram copiados |
 | `regra_bom` | str | regra de `algorithm_bin.csv`, por exemplo `"bom = algo_* >= 0.5"` |
 | `tempos_s` | dict | segundos por estágio (`PREPROCESSING` … `TRACE`), mais `deteccao_duplicatas`, `build_total` e `escrita` |
 | `trace_robustez` | dict | ver abaixo |
@@ -137,15 +142,56 @@ comparados sem diferenciar maiúsculas:
   carrega em `IsResult.instances`, mantendo o nome ou usando `ann_<nome>` se
   colidir com uma coluna derivada.
 
-Tipo das anotações no loader:
+Tipo das anotações no loader, por ordem de prioridade:
 
-- texto ou bool → `"categorica"`;
-- número → `"numerica"`, exceto número inteiro com no máximo 2 valores
-  distintos (código binário), que vira `"categorica"`;
-- `load_is_output(..., annotation_types={coluna: tipo})` sobrepõe a detecção.
+1. `load_is_output(..., annotation_types={coluna: tipo})`: origem `"forcado"`;
+   é o que a interface usa para trocar, na sessão, o tipo de uma anotação
+   inferida;
+2. o declarado em `annotations.json`: origem `"declarado"`;
+3. a heurística, só quando não há declaração: origem `"inferido"`. Texto ou
+   bool → `"categorica"`; número → `"numerica"`, exceto número inteiro com no
+   máximo 2 valores distintos (código binário), que vira `"categorica"`.
 
-O CSV não guarda tipo: o rótulo de texto `"1"` volta como número, com ou sem
-aspas.
+A origem de cada tipo fica em `IsResult.annotation_origins`. O CSV não guarda
+tipo: o rótulo de texto `"1"` volta como número, com ou sem aspas. Por isso a
+declaração existe.
+
+### `annotations.json` (eng, cópia opcional)
+
+Objeto JSON `{anotação: tipo}`, com `tipo` ∈ `"categorica"`, `"numerica"` e
+`"numerica_inteira"` (numérica cujos valores são inteiros, como contagens).
+As chaves usam o nome da coluna no `metadata.csv`. Nem toda anotação precisa
+estar declarada.
+
+O engine valida o arquivo **antes** de rodar e recusa três casos:
+
+- tipo desconhecido;
+- chave que não é coluna de anotação (é `instances`, `source`, `feature_*` ou
+  `algo_*`, ou não existe);
+- tipo numérico com valor não numérico, ou `numerica_inteira` com valor não
+  inteiro.
+
+Os tipos declarados vão também para `run_info.tipos_anotacao`.
+
+### `degenerate_report.csv` (eng, cópia opcional)
+
+Medidas descartadas **antes** do engine pelo gerador do metadata (no IC7,
+`isaspace.isa.to_isa_metadata`, por variância nula depois do recorte de
+outliers e do z-score). Colunas: `feature` (str, sem o prefixo), `var_bruta`
+(float), `iqr` (float) e `motivo` (str). Uma linha por medida descartada. Ter
+só o cabeçalho significa "verificado, nenhuma caiu". A ausência do arquivo
+significa que não há informação sobre descartes anteriores ao engine.
+
+### `feature_info.csv` (eng, cópia opcional)
+
+`feature` (str, sem o prefixo) e `family` (str, livre). Uma linha por feature
+recebida, incluindo as degeneradas. A interface mostra a família como coluna
+na aba Features, e a ordem das linhas define a ordem dessa tabela. No IC7,
+`family` é `model_derived` (CL, CLD, DS, DCP, TD_U, TD_P) ou `geometric`.
+
+A tabela da aba Features (`IsResult.features_table()`) junta
+`degenerate_report.csv` (status `dropped_degenerate`) e `sifted_report.csv`,
+com `r2_pilot` de `pilot_r2.csv` para as mantidas.
 
 ---
 

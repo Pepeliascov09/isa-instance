@@ -1,0 +1,7 @@
+feature,var_bruta,iqr,motivo
+DCP,0.0,0.0,variancia bruta ~0 (coluna constante)
+TD_P,,,todos os valores NaN
+MV,0.0,0.0,variancia bruta ~0 (coluna constante)
+CB,0.0,0.0,variancia bruta ~0 (coluna constante)
+F1,0.0005315304055157991,0.0,IQR = 0: bound_outliers (mediana +- 5*IQR) colapsa a coluna numa constante
+F3,0.004584197932611764,0.021725612778993764,variancia < 1e-08 apos Yeo-Johnson + z-score
