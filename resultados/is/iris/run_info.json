@@ -1,0 +1,157 @@
+{
+  "gerado_por": "isaspace.engine.run_instancespace",
+  "gerado_em": "2026-09-22T18:41:07",
+  "instancespace_version": "0.3.0",
+  "python": "3.12.14",
+  "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/iris/metadata.csv",
+  "n_instancias_entrada": 150,
+  "n_instancias": 150,
+  "n_features_entrada": 14,
+  "n_features_selecionadas": 6,
+  "algoritmos": [
+    "knn",
+    "tree",
+    "nb",
+    "logreg",
+    "svm_rbf",
+    "rf"
+  ],
+  "tem_source": false,
+  "tempos_s": {
+    "PREPROCESSING": 0.0,
+    "PRELIM": 0.196,
+    "SIFTED": 1.089,
+    "PILOT": 0.425,
+    "deteccao_duplicatas": 0.0,
+    "PYTHIA": 0.56,
+    "CLOISTER": 0.003,
+    "TRACE": 0.235,
+    "build_total": 2.516,
+    "escrita": 0.018
+  },
+  "trace_robustez": {
+    "limiar": 1e-06,
+    "pares_quase_duplicados": 5,
+    "pares_identicos": 5,
+    "pares_distintos_proximos": 0,
+    "menor_distancia_distintos_antes": 0.00034165547622303557,
+    "regra": "jitter so em posicoes distintas a menos do limiar; pontos identicos nao sao separados (o TRACE os funde com np.unique)",
+    "jitter_aplicado": false
+  },
+  "arquivos_footprint": {
+    "knn": {
+      "good": "footprint_knn_good.csv",
+      "best": null
+    },
+    "tree": {
+      "good": "footprint_tree_good.csv",
+      "best": "footprint_tree_best.csv"
+    },
+    "nb": {
+      "good": "footprint_nb_good.csv",
+      "best": null
+    },
+    "logreg": {
+      "good": "footprint_logreg_good.csv",
+      "best": null
+    },
+    "svm_rbf": {
+      "good": "footprint_svm_rbf_good.csv",
+      "best": null
+    },
+    "rf": {
+      "good": "footprint_rf_good.csv",
+      "best": "footprint_rf_best.csv"
+    }
+  },
+  "footprints_especiais": {
+    "space": {
+      "arquivo": "footprint_space.csv",
+      "area": 0.7381490299428737,
+      "densidade": 144.95717756112322,
+      "pureza": 1.0,
+      "elementos": 107,
+      "elementos_bons": 107
+    },
+    "hard": {
+      "arquivo": null,
+      "area": 0.0,
+      "densidade": 0.0,
+      "pureza": 0.0,
+      "elementos": 0,
+      "elementos_bons": 0,
+      "area_normalizada": 0.0,
+      "densidade_normalizada": 0.0
+    }
+  },
+  "pythia": {
+    "pares_instancia_algoritmo": 900,
+    "y_hat_discorda_de_pr0_hat": 3,
+    "selection0_nenhum": 3,
+    "selection1_difere_de_selection0": 3
+  },
+  "regra_bom": "bom = algo_* >= 0.5",
+  "arquivos": [
+    "algorithm_bin.csv",
+    "algorithm_process.csv",
+    "algorithm_raw.csv",
+    "algorithm_svm.csv",
+    "beta_easy.csv",
+    "bounds.csv",
+    "bounds_prunned.csv",
+    "coordinates.csv",
+    "feature_process.csv",
+    "feature_raw.csv",
+    "footprint_knn_good.csv",
+    "footprint_logreg_good.csv",
+    "footprint_nb_good.csv",
+    "footprint_performance.csv",
+    "footprint_rf_best.csv",
+    "footprint_rf_good.csv",
+    "footprint_space.csv",
+    "footprint_svm_rbf_good.csv",
+    "footprint_tree_best.csv",
+    "footprint_tree_good.csv",
+    "good_algos.csv",
+    "metadata.csv",
+    "pilot_r2.csv",
+    "portfolio.csv",
+    "portfolio_svm.csv",
+    "projection_matrix.csv",
+    "pythia_confusion.csv",
+    "pythia_proba.csv",
+    "pythia_selection.csv",
+    "run_info.json",
+    "run_options.json",
+    "sifted_correlations.csv",
+    "sifted_report.csv",
+    "sifted_silhouette.csv",
+    "svm_table.csv"
+  ],
+  "avisos": [],
+  "avisos_instancespace": [
+    "PythiaOptions.cv_folds=5 exceeds class count 4 for algorithm 'knn'; continuing to match MATLAB, with some test folds missing that class."
+  ],
+  "warnings_python": [
+    {
+      "categoria": "DeprecationWarning",
+      "mensagem": "Conversion of an array with ndim > 0 to a scalar is deprecated, and will error in future. Ensure you extract a single element from your array before performing this operation. (Deprecated NumPy 1.25.)",
+      "n": 1132
+    },
+    {
+      "categoria": "FutureWarning",
+      "mensagem": "The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`",
+      "n": 666
+    },
+    {
+      "categoria": "UserWarning",
+      "mensagem": "The least populated class in y has only 4 members, which is less than n_splits=5.",
+      "n": 22
+    },
+    {
+      "categoria": "UserWarning",
+      "mensagem": "The balance properties of Sobol' points require n to be a power of 2.",
+      "n": 6
+    }
+  ]
+}

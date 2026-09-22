@@ -1,7 +1,9 @@
 # ambiente
 .venv/
+.venv-isa/
 venv/
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 

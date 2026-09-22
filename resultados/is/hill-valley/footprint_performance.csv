@@ -1,0 +1,7 @@
+Row,Area_Good_Normalized,Density_Good_Normalized,Purity_Good,Area_Best_Normalized,Density_Best_Normalized,Purity_Best
+knn,0.51,1.046,0.72,0.0,0.0,0.0
+tree,0.396,0.858,0.672,0.396,0.86,0.621
+nb,0.33,1.128,0.568,0.017,0.509,0.5
+logreg,0.856,1.042,0.733,0.057,0.179,0.5
+svm_rbf,0.857,1.055,0.633,0.007,0.357,0.333
+rf,0.527,0.985,0.744,0.0,0.0,0.0

@@ -1,0 +1,103 @@
+{
+  "parallel": {
+    "flag": false,
+    "n_cores": 2
+  },
+  "perf": {
+    "max_perf": true,
+    "abs_perf": true,
+    "epsilon": 0.5,
+    "beta_threshold": 0.55
+  },
+  "auto": {
+    "preproc": true
+  },
+  "bound": {
+    "flag": true
+  },
+  "norm": {
+    "flag": true
+  },
+  "selvars": {
+    "small_scale_flag": false,
+    "small_scale": 0.5,
+    "file_idx_flag": false,
+    "file_idx": "",
+    "feats": null,
+    "algos": null,
+    "selvars_type": "Ftr&Good",
+    "min_distance": 0.1,
+    "density_flag": false
+  },
+  "sifted": {
+    "flag": true,
+    "rho": 0.1,
+    "k": 6,
+    "n_trees": 50,
+    "max_iter": 1000,
+    "replicates": 100,
+    "num_generations": 100,
+    "num_parents_mating": 2,
+    "sol_per_pop": 50,
+    "parent_selection_type": "tournament",
+    "k_tournament": 4,
+    "keep_elitism": 2,
+    "crossover_type": "scattered",
+    "cross_over_probability": 0.8,
+    "mutation_type": "random",
+    "mutation_probability": 0.05,
+    "stop_criteria": "saturate_5",
+    "pval": 0.05,
+    "dims": 2,
+    "seed": null
+  },
+  "pilot": {
+    "x0": null,
+    "precalc_alpha": null,
+    "analytic": false,
+    "n_tries": 10,
+    "adjust_rotation": false,
+    "cost_weight": 1.0,
+    "method": "standard",
+    "dims": 2,
+    "view_groups": [],
+    "seed": null
+  },
+  "cloister": {
+    "p_val": 0.05,
+    "c_thres": 0.7,
+    "max_features": 20,
+    "hull_dims": "all"
+  },
+  "pythia": {
+    "cv_folds": 5,
+    "is_poly_krnl": false,
+    "use_weights": false,
+    "params": null,
+    "classifier": "svm",
+    "tuning": "sobol",
+    "n_tuning_iter": 20,
+    "skip": false
+  },
+  "trace": {
+    "use_sim": false,
+    "purity": 0.55,
+    "method": "legacy",
+    "contra": true,
+    "min_instances": 4,
+    "min_area_frac": 0.01
+  },
+  "outputs": {
+    "csv": true,
+    "web": false,
+    "png": true
+  },
+  "general": {
+    "verbose": true,
+    "seed": 0
+  },
+  "prelim": {
+    "iqr_multiplier": 5.0,
+    "nan_threshold": 0.2
+  }
+}

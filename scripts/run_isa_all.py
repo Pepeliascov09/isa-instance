@@ -49,6 +49,8 @@ def spearman_com_ih(outdir, table, row_original):
     da ordem das linhas.
     """
     coords = pd.read_csv(outdir / "coordinates.csv", index_col="Row")
+    # o pyispace grava os rotulos "1".."n", que o read_csv le como inteiros
+    coords.index = coords.index.astype(str)
     coords.index.name = row_original.index.name
     coords = coords.join(row_original)
     ih = table["ih"].reindex(coords[ROW_ORIGINAL].to_numpy()).to_numpy()

@@ -1,0 +1,192 @@
+{
+  "gerado_por": "isaspace.engine.run_instancespace",
+  "gerado_em": "2026-09-22T18:42:09",
+  "instancespace_version": "0.3.0",
+  "python": "3.12.14",
+  "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/hill-valley/metadata.csv",
+  "n_instancias_entrada": 1212,
+  "n_instancias": 1212,
+  "n_features_entrada": 13,
+  "n_features_selecionadas": 6,
+  "algoritmos": [
+    "knn",
+    "tree",
+    "nb",
+    "logreg",
+    "svm_rbf",
+    "rf"
+  ],
+  "tem_source": false,
+  "tempos_s": {
+    "PREPROCESSING": 0.001,
+    "PRELIM": 0.23,
+    "SIFTED": 1.245,
+    "PILOT": 1.603,
+    "deteccao_duplicatas": 0.002,
+    "PYTHIA": 26.711,
+    "CLOISTER": 0.003,
+    "TRACE": 3.003,
+    "build_total": 32.806,
+    "escrita": 0.039
+  },
+  "trace_robustez": {
+    "limiar": 1e-06,
+    "pares_quase_duplicados": 41,
+    "pares_identicos": 13,
+    "pares_distintos_proximos": 22,
+    "menor_distancia_distintos_antes": 5.3022303615927524e-14,
+    "regra": "jitter so em posicoes distintas a menos do limiar; pontos identicos nao sao separados (o TRACE os funde com np.unique)",
+    "jitter_aplicado": true,
+    "jitter_escala": 1e-06,
+    "jitter_semente": 0,
+    "jitter_distribuicao": "normal(0, escala) em cada coordenada, um sorteio por posicao",
+    "posicoes_perturbadas": 25,
+    "pontos_perturbados": 27,
+    "rotulos_perturbados": [
+      "4",
+      "18",
+      "49",
+      "70",
+      "89",
+      "166",
+      "172",
+      "183",
+      "198",
+      "255",
+      "425",
+      "490",
+      "495",
+      "551",
+      "583",
+      "605",
+      "670",
+      "695",
+      "707",
+      "712",
+      "723",
+      "813",
+      "833",
+      "855",
+      "921",
+      "964",
+      "1087"
+    ],
+    "deslocamento_maximo": 2.4430384730562123e-06,
+    "menor_distancia_distintos_depois": 4.870189615961308e-07,
+    "pares_distintos_proximos_depois": 5,
+    "aplicado_em": "so no TRACE, via run_stage(TraceStage, z=...); coordinates.csv sai com o z perturbado; PYTHIA usou o z do PILOT e CLOISTER nao usa z"
+  },
+  "arquivos_footprint": {
+    "knn": {
+      "good": "footprint_knn_good.csv",
+      "best": null
+    },
+    "tree": {
+      "good": "footprint_tree_good.csv",
+      "best": "footprint_tree_best.csv"
+    },
+    "nb": {
+      "good": "footprint_nb_good.csv",
+      "best": "footprint_nb_best.csv"
+    },
+    "logreg": {
+      "good": "footprint_logreg_good.csv",
+      "best": "footprint_logreg_best.csv"
+    },
+    "svm_rbf": {
+      "good": "footprint_svm_rbf_good.csv",
+      "best": "footprint_svm_rbf_best.csv"
+    },
+    "rf": {
+      "good": "footprint_rf_good.csv",
+      "best": null
+    }
+  },
+  "footprints_especiais": {
+    "space": {
+      "arquivo": "footprint_space.csv",
+      "area": 6.368580160830977,
+      "densidade": 186.54079402291592,
+      "pureza": 1.0,
+      "elementos": 1188,
+      "elementos_bons": 1188
+    },
+    "hard": {
+      "arquivo": "footprint_hard.csv",
+      "area": 3.747125193389372,
+      "densidade": 170.53073143307708,
+      "pureza": 0.6682316118935837,
+      "elementos": 639,
+      "elementos_bons": 427,
+      "area_normalizada": 0.5883768593250218,
+      "densidade_normalizada": 0.9141739335157325
+    }
+  },
+  "pythia": {
+    "pares_instancia_algoritmo": 7272,
+    "y_hat_discorda_de_pr0_hat": 382,
+    "selection0_nenhum": 11,
+    "selection1_difere_de_selection0": 11
+  },
+  "regra_bom": "bom = algo_* >= 0.5",
+  "arquivos": [
+    "algorithm_bin.csv",
+    "algorithm_process.csv",
+    "algorithm_raw.csv",
+    "algorithm_svm.csv",
+    "beta_easy.csv",
+    "bounds.csv",
+    "bounds_prunned.csv",
+    "coordinates.csv",
+    "coordinates_trace.csv",
+    "feature_process.csv",
+    "feature_raw.csv",
+    "footprint_hard.csv",
+    "footprint_knn_good.csv",
+    "footprint_logreg_best.csv",
+    "footprint_logreg_good.csv",
+    "footprint_nb_best.csv",
+    "footprint_nb_good.csv",
+    "footprint_performance.csv",
+    "footprint_rf_good.csv",
+    "footprint_space.csv",
+    "footprint_svm_rbf_best.csv",
+    "footprint_svm_rbf_good.csv",
+    "footprint_tree_best.csv",
+    "footprint_tree_good.csv",
+    "good_algos.csv",
+    "metadata.csv",
+    "pilot_r2.csv",
+    "portfolio.csv",
+    "portfolio_svm.csv",
+    "projection_matrix.csv",
+    "pythia_confusion.csv",
+    "pythia_proba.csv",
+    "pythia_selection.csv",
+    "run_info.json",
+    "run_options.json",
+    "sifted_correlations.csv",
+    "sifted_report.csv",
+    "sifted_silhouette.csv",
+    "svm_table.csv"
+  ],
+  "avisos": [],
+  "avisos_instancespace": [],
+  "warnings_python": [
+    {
+      "categoria": "DeprecationWarning",
+      "mensagem": "Conversion of an array with ndim > 0 to a scalar is deprecated, and will error in future. Ensure you extract a single element from your array before performing this operation. (Deprecated NumPy 1.25.)",
+      "n": 1047
+    },
+    {
+      "categoria": "FutureWarning",
+      "mensagem": "The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`",
+      "n": 666
+    },
+    {
+      "categoria": "UserWarning",
+      "mensagem": "The balance properties of Sobol' points require n to be a power of 2.",
+      "n": 6
+    }
+  ]
+}

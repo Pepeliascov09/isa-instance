@@ -4,7 +4,10 @@ Duas funcoes publicas:
 
 - ``to_isa_metadata``: converte ``resultados/table_<nome>.csv`` no formato que
   ``pyispace.train_is`` espera: colunas ``feature_*`` e ``algo_*`` numericas e
-  indice ``instances`` de 1 a n (o mesmo layout do ``Workspace`` do pyhard).
+  indice ``instances`` com os rotulos "1".."n" em texto (o mesmo layout do
+  ``Workspace`` do pyhard). Leva junto ``row_original`` e as anotacoes
+  ``class``, ``ih`` e ``n_wrong``, que o pyispace ignora e o instancespace
+  (``isaspace.engine``) preserva como anotacoes.
 - ``run_isa``: monta as opcoes, roda ``train_is`` (PILOT + TRACE), grava os
   CSVs no layout do pyhard via ``pyispace.utils.scriptcsv`` e verifica que o
   significado de "bom" nao foi invertido.
@@ -28,6 +31,12 @@ _ALGO = "algo_"
 _PROBA = "proba_"
 INDEX_NAME = "instances"
 ROW_ORIGINAL = "row_original"
+# colunas da tabela por instancia que viajam no metadata como anotacoes:
+# nao sao feature_* nem algo_*, entao train_is e o instancespace nao as usam
+ANOTACOES = ("class", "ih", "n_wrong")
+# rotulo da classe: o valor nominal do alvo no OpenML, sempre texto
+# (pipeline.build_instance_table grava pd.Series(y).astype(str))
+ROTULO = "class"
 
 # Diferenca maxima tolerada entre a taxa "boa" do pyispace (Ybin) e a acuracia
 # real de cada algoritmo. Acima disso o mais provavel e perf.MaxPerf invertido.
@@ -119,7 +128,8 @@ def _filtrar_degeneradas(F, min_var):
 
 
 def to_isa_metadata(
-    table, drop_degenerate=True, min_var=1e-8, proba_as_performance=True
+    table, drop_degenerate=True, min_var=1e-8, proba_as_performance=True,
+    annotations=ANOTACOES,
 ):
     """Converte a tabela por instancia no metadata que ``train_is`` consome.
 
@@ -135,20 +145,25 @@ def to_isa_metadata(
         descartadas e as ``proba_*`` viram ``algo_<nome>`` (desempenho
         continuo, maior e melhor: e o que o PILOT consegue ajustar). Se False,
         mantem as ``algo_*`` originais e descarta as ``proba_*``.
+    annotations : colunas da tabela copiadas para o metadata como anotacoes
+        (padrao ``class``, ``ih``, ``n_wrong``). Todas tem de existir na
+        tabela. ``class`` vai como texto: o rotulo nominal do OpenML.
 
     Retorna
     -------
     (metadata, info)
       metadata : DataFrame com ``row_original`` (indice original da tabela),
-          as ``feature_*`` mantidas e as ``algo_*``; indice RangeIndex de 1 a n
-          chamado ``instances``. As colunas que nao comecam com ``feature_``
-          ou ``algo_`` sao ignoradas por ``train_is`` (train.py:56-57).
+          as anotacoes, as ``feature_*`` mantidas e as ``algo_*``; indice
+          ``instances`` com os rotulos "1".."n" em texto. As colunas que nao
+          comecam com ``feature_`` ou ``algo_`` sao ignoradas por
+          ``train_is`` (train.py:56-57) e tratadas como anotacoes pelo
+          instancespace.
       info : dict com ``features_kept``, ``features_dropped`` (lista de dicts
           com feature, var_bruta, iqr, var_pos_preproc e motivo),
           ``performance_source`` ("proba" ou "acerto"), ``algos``,
-          ``row_original`` (Series instances -> indice original, para o join
-          da interface) e ``acerto_real`` (taxa de acerto 0/1 por algoritmo,
-          usada pelo guarda-corpo de ``run_isa``).
+          ``annotations``, ``row_original`` (Series instances -> indice
+          original, para o join da interface) e ``acerto_real`` (taxa de
+          acerto 0/1 por algoritmo, usada pelo guarda-corpo de ``run_isa``).
     """
     feature_cols = [c for c in table.columns if c.startswith(_FEATURE)]
     algo_cols = [c for c in table.columns if c.startswith(_ALGO)]
@@ -156,6 +171,17 @@ def to_isa_metadata(
         raise ValueError("tabela sem colunas feature_*")
     if not algo_cols:
         raise ValueError("tabela sem colunas algo_*")
+    annotations = list(annotations)
+    faltam = [c for c in annotations if c not in table.columns]
+    if faltam:
+        raise ValueError(f"tabela sem as colunas de anotacao {faltam}")
+    reservadas = [
+        c for c in annotations
+        if c.casefold() in (INDEX_NAME, "source", ROW_ORIGINAL)
+        or c.casefold().startswith((_FEATURE, _ALGO))
+    ]
+    if reservadas:
+        raise ValueError(f"nome reservado usado como anotacao: {reservadas}")
 
     F = table[feature_cols].astype(float)
     if drop_degenerate:
@@ -181,12 +207,21 @@ def to_isa_metadata(
         fonte = "acerto"
 
     n = len(table)
-    novo_indice = pd.RangeIndex(1, n + 1, name=INDEX_NAME)
+    # rotulos em texto; os valores "1".."n" sao os mesmos do RangeIndex antigo,
+    # entao o Row 1..n do coordinates.csv do pyispace continua casando
+    novo_indice = pd.Index(
+        [str(i) for i in range(1, n + 1)], name=INDEX_NAME, dtype=object
+    )
     row_original = pd.Series(
         table.index.to_numpy(), index=novo_indice, name=ROW_ORIGINAL
     )
 
-    metadata = pd.concat([F[kept], Y], axis=1)
+    anot = table[annotations].copy()
+    if ROTULO in anot.columns:
+        # a tabela relida do CSV traz os rotulos nominais "1"/"2" (blood) e
+        # "0"/"1" (hill-valley) como inteiros; volta para o texto do OpenML
+        anot[ROTULO] = anot[ROTULO].astype(str)
+    metadata = pd.concat([anot, F[kept], Y], axis=1)
     metadata.index = novo_indice
     metadata.insert(0, ROW_ORIGINAL, row_original.to_numpy())
 
@@ -197,6 +232,7 @@ def to_isa_metadata(
         "features_dropped": dropped,
         "performance_source": fonte,
         "algos": nomes,
+        "annotations": annotations,
         "row_original": row_original,
         "acerto_real": acerto_real,
     }

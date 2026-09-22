@@ -1,0 +1,9 @@
+Row,Avg_Perf_all_instances,Std_Perf_all_instances,Probability_of_good,Avg_Perf_selected_instances,Std_Perf_selected_instances,CV_model_accuracy,CV_model_precision,CV_model_recall,BoxConstraint,KernelScale
+knn,0.684,0.291,0.728,0.788,0.229,82.3,87.2,88.7,1.506,7.321
+tree,0.701,0.458,0.701,0.858,0.349,75.7,80.3,86.4,2.931,0.276
+nb,0.709,0.312,0.755,0.86,0.159,95.2,96.9,96.7,3.169,1.53
+logreg,0.687,0.246,0.775,0.793,0.153,91.4,94.9,93.9,0.215,2.483
+svm_rbf,0.674,0.244,0.762,0.777,0.152,90.2,93.5,93.7,13.221,3.036
+rf,0.679,0.243,0.771,0.775,0.168,88.5,92.9,92.2,8.102,0.939
+Oracle,0.898,0.211,1.0,,,,,,,
+Selector,0.76,0.276,0.815,0.847,0.198,,94.9,47.1,,
