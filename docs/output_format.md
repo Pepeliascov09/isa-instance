@@ -1,283 +1,330 @@
-# Formato da pasta de saída do engine
+# Engine output folder format
 
-Contrato entre quem escreve, `isaspace.engine.run_instancespace` (Python 3.12,
-`.venv-isa`, instancespace 0.3.0), e quem lê, `isaspace.ui.loader_is.load_is_output`.
-Uma pasta corresponde a uma execução sobre um `metadata.csv`. As pastas
-versionadas estão em `resultados/is/<nome>/` e são geradas por
-`scripts/run_is_all.py`.
+Contract between the writer, `isaspace.engine.run_instancespace` (Python 3.12,
+`.venv-isa`, instancespace 0.3.0), and the reader,
+`isaspace.ui.loader_is.load_is_output`. One folder corresponds to one run on a
+`metadata.csv`. The versioned folders are in `resultados/is/<name>/` and are
+written by `scripts/run_is_all.py`.
 
-As execuções disparadas pela interface (bloco "Novo instance space") ficam em
-`runs/<nome>_<AAAAMMDD-HHMMSS>/`, fora do git. O engine roda em subprocesso
+Runs launched from the interface (the "New instance space" block) go to
+`runs/<name>_<YYYYMMDD-HHMMSS>/`, outside git. The engine runs in a subprocess
 (`python -m isaspace.engine --metadata ... --outdir ... --options '<json>'`,
-lançado por `isaspace.ui.execucao`), e a pasta segue este contrato com dois
-itens a mais, que o engine não toca:
+launched by `isaspace.ui.runner`), and the folder follows this contract with
+two extra items that the engine does not touch:
 
-- `entrada/`: os arquivos enviados (`metadata.csv` e, se enviados,
-  `annotations.json` e `feature_info.csv`); é daqui que o engine lê;
-- `execucao.log`: toda a saída do subprocesso (logs do instancespace e, em
-  caso de erro, o traceback). As linhas que começam com `@@isa` são o protocolo
-  de progresso: `@@isa estagio <NOME>` antes de cada estágio, `@@isa ok
-  <pasta>` no fim e `@@isa erro <mensagem>` em caso de falha (código de saída 1).
+- `input/`: the uploaded files (`metadata.csv` and, if uploaded,
+  `annotations.json` and `feature_info.csv`); the engine reads from here;
+- `run.log`: the whole subprocess output (instancespace logs and, on error,
+  the traceback). The lines that start with `@@isa` are the progress protocol:
+  `@@isa stage <NAME>` before each stage, `@@isa ok <folder>` at the end and
+  `@@isa error <message>` on failure (exit code 1). Only the one-line error
+  message reaches the interface; the traceback stays in the log.
 
-A antiga `resultados/isa/<nome>/` (pyispace, lida por `isaspace/ui/loader.py`)
-tem outro formato e não segue este contrato.
+The legacy `resultados/isa/<name>/` (pyispace, read by `isaspace/ui/loader.py`)
+has another format and does not follow this contract.
 
-## Convenções gerais
+## General conventions
 
-- **Pasta completa.** `run_info.json` é gravado por último. Pasta sem ele é
-  execução incompleta, e o loader a recusa. Numa reexecução, o engine apaga
-  apenas os arquivos listados aqui, antes de gravar; recusa pasta que tenha
-  esses nomes sem um `run_info.json` dele próprio.
-- **CSV.** Vírgula como separador, cabeçalho na primeira linha, UTF-8, ponto
-  decimal, sem linhas de comentário. Floats na representação completa do
-  pandas, salvo onde há arredondamento indicado.
-- **`Row` nos arquivos por instância.** É o **rótulo da instância** (coluna
-  `instances` do metadata), não um contador. Deve ser lido como texto
-  (`dtype={"Row": str}`): o rótulo `"1"` não é o inteiro 1. Todos os arquivos
-  por instância têm as mesmas linhas, na mesma ordem (a do metadata). Com as
-  opções padrão, todas as instâncias do metadata aparecem; se
-  `selvars.small_scale_flag` ou `selvars.density_flag` forem ligados, é um
-  subconjunto (`run_info.n_instancias` < `n_instancias_entrada`).
-- **Booleanos** são gravados como `True` / `False`.
-- **Campo vazio** significa ausente (NaN, ou `None` para nomes).
-- **Nomes** de algoritmos e features vêm sem os prefixos `algo_` / `feature_`.
-- **Ordem dos algoritmos:** é a das colunas de `algorithm_raw.csv`, igual a
-  `run_info.algoritmos`. Os índices de portfólio referem-se a essa ordem.
-- **Arquivos cuja ausência tem significado:** `coordinates_trace.csv`
-  (sem jitter) e os `footprint_*.csv` (footprint vazia).
-- **Origem de cada arquivo:** *sc* = gravado por `Model.save_to_csv` do
-  instancespace; *eng* = gravado pelo engine.
+- **Complete folder.** `run_info.json` is written last. A folder without it is
+  an incomplete run, and the loader refuses it. On a rerun, the engine deletes
+  only the files listed here, before writing; it refuses a folder that has
+  files with these names but no `run_info.json` of its own
+  (`generated_by` must be `"isaspace.engine.run_instancespace"`).
+- **CSV.** Comma separator, header on the first line, UTF-8, decimal point, no
+  comment lines. Floats in pandas' full representation, except where rounding
+  is stated.
+- **`Row` in the per-instance files.** It is the **instance label** (the
+  metadata's `instances` column), not a counter. It must be read as text
+  (`dtype={"Row": str}`): the label `"1"` is not the integer 1. All
+  per-instance files have the same rows, in the same order (the metadata's).
+  With the default options, every metadata instance appears; if
+  `selvars.small_scale_flag` or `selvars.density_flag` are turned on, it is a
+  subset (`run_info.n_instances` < `n_instances_input`).
+- **Booleans** are written as `True` / `False`.
+- **Empty field** means missing (NaN, or `None` for names).
+- **Names** of algorithms and features come without the `algo_` / `feature_`
+  prefixes.
+- **Algorithm order:** that of the `algorithm_raw.csv` columns, equal to
+  `run_info.algorithms`. Portfolio indices refer to this order.
+- **Files whose absence is meaningful:** `coordinates_trace.csv` (no jitter)
+  and the `footprint_*.csv` (empty footprint).
+- **Origin of each file:** *sc* = written by instancespace's
+  `Model.save_to_csv`; *eng* = written by the engine.
 
-## Índice
+## Index
 
-| arquivo | origem | uma linha por | presença |
+| file | origin | one row per | present |
 |---|---|---|---|
-| `run_info.json` | eng | — | sempre |
-| `run_options.json` | eng | — | sempre |
-| `metadata.csv` | eng (cópia) | instância de entrada | sempre |
-| `annotations.json` | eng (cópia) | — | se existir ao lado do metadata de entrada |
-| `degenerate_report.csv` | eng (cópia) | feature descartada antes do engine | se existir ao lado do metadata de entrada |
-| `feature_info.csv` | eng (cópia) | feature recebida | se existir ao lado do metadata de entrada |
-| `coordinates.csv` | eng | instância | sempre |
-| `coordinates_trace.csv` | eng | instância | só com jitter |
-| `projection_matrix.csv` | sc | eixo (z_1, z_2) | sempre |
-| `pilot_r2.csv` | eng | feature ou algoritmo | sempre |
-| `feature_raw.csv`, `feature_process.csv` | sc | instância | sempre |
-| `algorithm_raw.csv`, `algorithm_process.csv` | sc | instância | sempre |
-| `algorithm_bin.csv` | sc | instância | sempre |
-| `good_algos.csv`, `beta_easy.csv`, `portfolio.csv` | sc | instância | sempre |
-| `sifted_report.csv` | eng | feature de entrada | sempre |
-| `sifted_correlations.csv` | eng | par feature x algoritmo | sempre (pode ter só cabeçalho) |
-| `sifted_silhouette.csv` | eng | k testado | sempre (pode ter só cabeçalho) |
-| `algorithm_svm.csv`, `portfolio_svm.csv` | sc | instância | sempre |
-| `pythia_proba.csv`, `pythia_selection.csv` | eng | instância | sempre |
-| `pythia_confusion.csv` | eng | algoritmo | sempre |
-| `svm_table.csv` | sc | algoritmo, mais `Oracle` e `Selector` | sempre |
-| `bounds.csv`, `bounds_prunned.csv` | sc | vértice da fronteira | sempre |
-| `footprint_<algo>_<good\|best>.csv` | sc | vértice | só se não vazia |
-| `footprint_space.csv`, `footprint_hard.csv` | eng | vértice | só se não vazia |
-| `footprint_performance.csv` | sc | algoritmo | sempre |
+| `run_info.json` | eng | — | always |
+| `run_options.json` | eng | — | always |
+| `metadata.csv` | eng (copy) | input instance | always |
+| `annotations.json` | eng (copy) | — | if next to the input metadata |
+| `degenerate_report.csv` | eng (copy) | feature dropped before the engine | if next to the input metadata |
+| `feature_info.csv` | eng (copy) | received feature | if next to the input metadata |
+| `coordinates.csv` | eng | instance | always |
+| `coordinates_trace.csv` | eng | instance | only with jitter |
+| `projection_matrix.csv` | sc | axis (z_1, z_2) | always |
+| `pilot_r2.csv` | eng | feature or algorithm | always |
+| `feature_raw.csv`, `feature_process.csv` | sc | instance | always |
+| `algorithm_raw.csv`, `algorithm_process.csv` | sc | instance | always |
+| `algorithm_bin.csv` | sc | instance | always |
+| `good_algos.csv`, `beta_easy.csv`, `portfolio.csv` | sc | instance | always |
+| `sifted_report.csv` | eng | input feature | always |
+| `sifted_correlations.csv` | eng | feature x algorithm pair | always (may have only the header) |
+| `sifted_silhouette.csv` | eng | k tried | always (may have only the header) |
+| `algorithm_svm.csv`, `portfolio_svm.csv` | sc | instance | always |
+| `pythia_proba.csv`, `pythia_selection.csv` | eng | instance | always |
+| `pythia_confusion.csv` | eng | algorithm | always |
+| `svm_table.csv` | sc | algorithm, plus `Oracle` and `Selector` | always |
+| `bounds.csv`, `bounds_prunned.csv` | sc | boundary vertex | always |
+| `footprint_<algo>_<good\|best>.csv` | sc | vertex | only if not empty |
+| `footprint_space.csv`, `footprint_hard.csv` | eng | vertex | only if not empty |
+| `footprint_performance.csv` | sc | algorithm | always |
 
 ---
 
-## Execução
+## Run
 
 ### `run_info.json` (eng)
 
-Objeto JSON.
+JSON object.
 
-| chave | tipo | conteúdo |
+| key | type | content |
 |---|---|---|
-| `gerado_por` | str | `"isaspace.engine.run_instancespace"`; marca a pasta como do engine |
-| `gerado_em` | str | data e hora ISO 8601, local, em segundos |
-| `instancespace_version`, `python` | str | versões usadas |
-| `metadata_entrada` | str | caminho absoluto do metadata lido |
-| `n_instancias_entrada`, `n_instancias` | int | linhas do metadata e linhas nos arquivos por instância |
-| `n_features_entrada`, `n_features_selecionadas` | int | features do metadata e escolhidas pelo SIFTED |
-| `algoritmos` | list[str] | ordem canônica dos algoritmos |
-| `tem_source` | bool | se o metadata tinha coluna `source` |
-| `tipos_anotacao` | dict | `{"arquivo": "annotations.json" ou null, "declarados": {anotação: tipo}}` |
-| `arquivos_auxiliares` | list[str] | quais de `annotations.json`, `degenerate_report.csv` e `feature_info.csv` foram copiados |
-| `regra_bom` | str | regra de `algorithm_bin.csv`, por exemplo `"bom = algo_* >= 0.5"` |
-| `tempos_s` | dict | segundos por estágio (`PREPROCESSING` … `TRACE`), mais `deteccao_duplicatas`, `build_total` e `escrita` |
-| `trace_robustez` | dict | ver abaixo |
-| `arquivos_footprint` | dict | `{algo: {"good": arquivo ou null, "best": arquivo ou null}}`; ver TRACE |
-| `footprints_especiais` | dict | `{"space": {...}, "hard": {...}}`; ver TRACE |
-| `pythia` | dict | contagens de diagnóstico do PYTHIA; ver PYTHIA |
-| `arquivos` | list[str] | arquivos desta pasta gravados pelo engine |
-| `avisos` | list[str] | inconsistências detectadas pelo engine ao montar os arquivos; vazio é o esperado |
-| `avisos_instancespace` | list[str] | mensagens de nível WARNING ou acima do log do instancespace, sem repetição |
-| `warnings_python` | list[dict] | `{categoria, mensagem, n}`: warnings Python capturados durante a execução, com contagem |
+| `generated_by` | str | `"isaspace.engine.run_instancespace"`; marks the folder as the engine's |
+| `generated_at` | str | local ISO 8601 date and time, in seconds |
+| `instancespace_version`, `python` | str | versions used |
+| `input_metadata` | str | absolute path of the metadata read |
+| `n_instances_input`, `n_instances` | int | metadata rows and rows in the per-instance files |
+| `n_features_input`, `n_features_selected` | int | metadata features and features chosen by SIFTED |
+| `algorithms` | list[str] | canonical algorithm order |
+| `has_source` | bool | whether the metadata had a `source` column |
+| `annotation_types` | dict | `{"file": "annotations.json" or null, "declared": {annotation: type}}` |
+| `auxiliary_files` | list[str] | which of `annotations.json`, `degenerate_report.csv` and `feature_info.csv` were copied |
+| `good_rule` | str | the rule of `algorithm_bin.csv`, e.g. `"good = algo_* >= 0.5"` |
+| `timings_s` | dict | seconds per stage (`PREPROCESSING` … `TRACE`), plus `near_duplicate_check`, `build_total` and `writing` |
+| `trace_robustness` | dict | see below |
+| `footprint_files` | dict | `{algo: {"good": file or null, "best": file or null}}`; see TRACE |
+| `special_footprints` | dict | `{"space": {...}, "hard": {...}}`; see TRACE |
+| `pythia` | dict | PYTHIA diagnostic counts; see PYTHIA |
+| `files` | list[str] | files of this folder written by the engine |
+| `warnings` | list[str] | inconsistencies the engine detected while building the files; empty is expected |
+| `instancespace_warnings` | list[str] | WARNING-or-above messages of the instancespace log, without repetition |
+| `python_warnings` | list[dict] | `{category, message, n}`: Python warnings captured during the run, with counts |
 
-`trace_robustez` registra a correção de pontos quase coincidentes da projeção
-antes do TRACE. O alpha shape do TRACE legado devolve polígono vazio quando há
-pontos **distintos** a ~1e-14 um do outro.
+`good_rule` has one of four forms, following the PRELIM rule
+(prelim.py:120-170): `good = algo_* >= ε` (higher is better, absolute),
+`good = algo_* <= ε` (lower is better, absolute), `good = 1 - algo_*/best <= ε`
+(higher is better, relative) and `good = algo_*/best - 1 <= ε` (lower is
+better, relative).
 
-- Sempre presentes:
-  - `limiar` (1e-6);
-  - `pares_quase_duplicados`: todos os pares a menos do limiar;
-  - `pares_identicos`: os pares com distância 0; o TRACE já os funde com `np.unique`, então não atrapalham;
-  - `pares_distintos_proximos`: pares entre posições distintas;
-  - `menor_distancia_distintos_antes`;
-  - `regra`;
-  - `jitter_aplicado`.
-- Quando `jitter_aplicado` é `true`:
-  - `jitter_escala`, `jitter_semente` e `jitter_distribuicao`;
-  - `posicoes_perturbadas` e `pontos_perturbados`;
-  - `rotulos_perturbados`: os `Row` alterados;
-  - `deslocamento_maximo`;
-  - `menor_distancia_distintos_depois` e `pares_distintos_proximos_depois`;
-  - `aplicado_em`.
-- `motivo_sem_jitter` aparece quando a correção foi desligada (`fix_near_duplicates=False`).
+`trace_robustness` records the correction of near-coincident projection points
+before TRACE. The legacy TRACE alpha shape returns an empty polygon when there
+are **distinct** points ~1e-14 apart.
+
+- Always present:
+  - `threshold` (1e-6);
+  - `near_duplicate_pairs`: all pairs closer than the threshold;
+  - `identical_pairs`: the pairs at distance 0; TRACE already merges them with
+    `np.unique`, so they do no harm;
+  - `distinct_close_pairs`: pairs between distinct positions;
+  - `min_distance_distinct_before`;
+  - `rule`;
+  - `jitter_applied`.
+- When `jitter_applied` is `true`:
+  - `jitter_scale` (1e-6), `jitter_seed` (0) and `jitter_distribution`;
+  - `perturbed_positions` and `perturbed_points`;
+  - `perturbed_labels`: the `Row` labels that were moved;
+  - `max_shift`;
+  - `min_distance_distinct_after` and `distinct_close_pairs_after`;
+  - `applied_to`: TRACE only; `coordinates.csv` keeps the PILOT z and the
+    perturbed z goes to `coordinates_trace.csv`; PYTHIA used the PILOT z and
+    CLOISTER does not use z.
+- `reason_no_jitter` appears when the correction was turned off
+  (`fix_near_duplicates=False`).
+
+In the four versioned datasets, only hill-valley needs the jitter (22 pairs of
+distinct positions closer than 1e-6, the closest 5.3e-14 apart; 27 points
+moved).
 
 ### `run_options.json` (eng)
 
-É `dataclasses.asdict(InstanceSpaceOptions)`: todas as opções efetivas, agrupadas
-(`parallel`, `perf`, `auto`, `bound`, `norm`, `selvars`, `sifted`, `pilot`,
-`cloister`, `pythia`, `trace`, `outputs`, `general`, `prelim`), com os nomes de
-campo dos dataclasses (`max_perf`, `use_sim`, `purity`…).
-`InstanceSpaceOptions.from_dict(json.load(...))` reconstrói as mesmas opções.
+It is `dataclasses.asdict(InstanceSpaceOptions)`: every effective option,
+grouped (`parallel`, `perf`, `auto`, `bound`, `norm`, `selvars`, `sifted`,
+`pilot`, `cloister`, `pythia`, `trace`, `outputs`, `general`, `prelim`), with
+the dataclass field names (`max_perf`, `use_sim`, `purity`…).
+`InstanceSpaceOptions.from_dict(json.load(...))` rebuilds the same options.
 
-O engine altera só estes padrões da biblioteca: `perf.max_perf=true`,
-`perf.abs_perf=true`, `perf.epsilon=0.5` e `trace.use_sim=false`. O loader usa
-`trace.purity` como limiar de footprint "suspeita".
+The engine only changes these library defaults: `perf.max_perf=true`,
+`perf.abs_perf=true`, `perf.epsilon=0.5` and `trace.use_sim=false`. Runs from
+the interface also set `perf` from the user's choice (there is no default
+direction there) and `sifted.k` and `trace.use_sim` from the advanced options.
+The loader uses `trace.purity` as the threshold of a "suspect" footprint and
+`perf.max_perf` for the tie rule.
 
 ### `metadata.csv` (eng)
 
-Cópia byte a byte do metadata de entrada. Colunas, com prefixos e nomes
-comparados sem diferenciar maiúsculas:
+Byte-for-byte copy of the input metadata. Columns, with prefixes and names
+compared case-insensitively:
 
-- `instances`: rótulo da instância; vira o `Row` dos demais arquivos;
-- `source` (opcional): origem da instância;
-- `feature_<f>`: features (numéricas);
-- `algo_<a>`: desempenho de cada algoritmo (numérico);
-- qualquer outra coluna é **anotação**: o instancespace a ignora, e o loader a
-  carrega em `IsResult.instances`, mantendo o nome ou usando `ann_<nome>` se
-  colidir com uma coluna derivada.
+- `instances`: instance label; becomes the `Row` of the other files;
+- `source` (optional): origin of the instance;
+- `feature_<f>`: features (numeric);
+- `algo_<a>`: performance of each algorithm (numeric);
+- any other column is an **annotation**: instancespace ignores it, and the
+  loader loads it into `IsResult.instances`, keeping the name or using
+  `ann_<name>` if it collides with a derived column.
 
-Tipo das anotações no loader, por ordem de prioridade:
+Annotation types in the loader, by priority:
 
-1. `load_is_output(..., annotation_types={coluna: tipo})`: origem `"forcado"`;
-   é o que a interface usa para trocar, na sessão, o tipo de uma anotação
-   inferida;
-2. o declarado em `annotations.json`: origem `"declarado"`;
-3. a heurística, só quando não há declaração: origem `"inferido"`. Texto ou
-   bool → `"categorica"`; número → `"numerica"`, exceto número inteiro com no
-   máximo 2 valores distintos (código binário), que vira `"categorica"`.
+1. `load_is_output(..., annotation_types={column: type})`: origin `"forced"`;
+   this is what the interface uses to change, for the session, the type of an
+   inferred annotation;
+2. the one declared in `annotations.json`: origin `"declared"`;
+3. the heuristic, only without a declaration: origin `"inferred"`. Text or
+   bool → `"categorical"`; number → `"numeric"`, except integers with at most 2
+   distinct values (a binary code), which become `"categorical"`.
 
-A origem de cada tipo fica em `IsResult.annotation_origins`. O CSV não guarda
-tipo: o rótulo de texto `"1"` volta como número, com ou sem aspas. Por isso a
-declaração existe.
+The origin of each type is in `IsResult.annotation_origins`. A CSV does not
+store types: the text label `"1"` comes back as a number, quoted or not. That
+is why the declaration exists.
 
-### `annotations.json` (eng, cópia opcional)
+### `annotations.json` (eng, optional copy)
 
-Objeto JSON `{anotação: tipo}`, com `tipo` ∈:
+JSON object `{annotation: type}`, with `type` ∈:
 
-- `"categorica"`;
-- `"numerica"`;
-- `"numerica_inteira"`: numérica cujos valores são inteiros, como contagens;
-- `"identifier"`: chave ou id (no IC7, `row_original`, o índice da linha no
-  dataset do OpenML). O valor é mantido como veio. A coluna aparece na tabela
-  do Data Explorer e na exportação, mas fica fora dos seletores de cor e de
-  "agrupar por". A heurística nunca infere esse tipo: ele só vem declarado ou
-  escolhido na sessão.
+- `"categorical"`;
+- `"numeric"`;
+- `"integer"`: numeric with integer values, such as counts;
+- `"identifier"`: key or id (in IC7, `row_original`, the row index in the
+  OpenML dataset). The value is kept as it came. The column appears in the
+  Data Explorer table and in the export, but not in the color and "group by"
+  selectors. The heuristic never infers this type: it is only declared or
+  chosen in the session.
 
-As chaves usam o nome da coluna no `metadata.csv`. Nem toda anotação precisa
-estar declarada.
+The keys use the column name in `metadata.csv`. Not every annotation has to be
+declared.
 
-O engine valida o arquivo **antes** de rodar e recusa três casos:
+The engine validates the file **before** running and refuses three cases:
 
-- tipo desconhecido;
-- chave que não é coluna de anotação (é `instances`, `source`, `feature_*` ou
-  `algo_*`, ou não existe);
-- tipo numérico com valor não numérico, ou `numerica_inteira` com valor não
-  inteiro.
+- unknown type;
+- a key that is not an annotation column (it is `instances`, `source`,
+  `feature_*` or `algo_*`, or does not exist);
+- a numeric type with a non-numeric value, or `integer` with a non-integer
+  value.
 
-Os tipos declarados vão também para `run_info.tipos_anotacao`.
+The declared types also go to `run_info.annotation_types`. The same check
+(`loader_is.declared_type_errors`) runs in the loader and in the upload
+validation of the interface.
 
-### `degenerate_report.csv` (eng, cópia opcional)
+### `degenerate_report.csv` (eng, optional copy)
 
-Medidas descartadas **antes** do engine pelo gerador do metadata (no IC7,
-`isaspace.isa.to_isa_metadata`, por variância nula depois do recorte de
-outliers e do z-score). Colunas: `feature` (str, sem o prefixo), `var_bruta`
-(float), `iqr` (float) e `motivo` (str). Uma linha por medida descartada. Ter
-só o cabeçalho significa "verificado, nenhuma caiu". A ausência do arquivo
-significa que não há informação sobre descartes anteriores ao engine.
+Measures dropped **before** the engine by the metadata generator (in IC7,
+`isaspace.isa.to_isa_metadata`, for zero variance after the outlier clipping
+and the z-score). Columns: `feature` (str, without the prefix), `raw_variance`
+(float), `iqr` (float) and `reason` (str). One row per dropped measure. Having
+only the header means "checked, none was dropped". The absence of the file
+means there is no information about drops before the engine.
 
-### `feature_info.csv` (eng, cópia opcional)
+### `feature_info.csv` (eng, optional copy)
 
-`feature` (str, sem o prefixo) e `family` (str, livre). Uma linha por feature
-recebida, incluindo as degeneradas. A interface mostra a família como coluna
-na aba Features, e a ordem das linhas define a ordem dessa tabela. No IC7,
-`family` é `model_derived` (CL, CLD, DS, DCP, TD_U, TD_P) ou `geometric`.
+`feature` (str, without the prefix) and `family` (str, free). One row per
+received feature, including the degenerate ones. The interface shows the
+family as a column in the Features tab, and the row order sets the order of
+that table. In IC7, `family` is `model_derived` (CL, CLD, DS, DCP, TD_U, TD_P)
+or `geometric`.
 
-A tabela da aba Features (`IsResult.features_table()`) junta
-`degenerate_report.csv` (status `dropped_degenerate`) e `sifted_report.csv`,
-com `r2_pilot` de `pilot_r2.csv` para as mantidas.
+The Features tab table (`IsResult.features_table()`) joins
+`degenerate_report.csv` (status `dropped_degenerate`) and `sifted_report.csv`,
+with `r2_pilot` from `pilot_r2.csv` for the kept features. Its columns are
+`feature`, `family` (only with `feature_info.csv`), `status`, `reason`,
+`replaced_by`, `max_abs_rho`, `rho_algorithm`, `pval` and `r2_pilot`.
 
 ---
 
-## Projeção (PILOT)
+## Projection (PILOT)
 
 ### `coordinates.csv` (eng)
 
-`Row`, `z_1`, `z_2` (float). O **z do PILOT, sem correção**. É o que a
-interface desenha. O engine regrava este arquivo depois do `save_to_csv`,
-que gravaria o z do TRACE.
+`Row`, `z_1`, `z_2` (float). The **PILOT z, without correction**. It is what
+the interface draws. The engine rewrites this file after `save_to_csv`, which
+would write the TRACE z.
 
-### `coordinates_trace.csv` (eng, opcional)
+### `coordinates_trace.csv` (eng, optional)
 
-Mesmas colunas. O z que o TRACE usou, **só quando `trace_robustez.jitter_aplicado`**.
-Difere de `coordinates.csv` apenas nas linhas de `rotulos_perturbados`, e no
-máximo por `deslocamento_maximo`. As footprints foram calculadas sobre este z.
-O loader exige coerência: o arquivo existe se, e só se, o jitter foi aplicado.
-Expõe o conteúdo em `IsResult.coordinates_trace` (ou `None`).
+Same columns. The z TRACE used, **only when `trace_robustness.jitter_applied`**.
+It differs from `coordinates.csv` only in the rows of `perturbed_labels`, and
+by at most `max_shift`. The footprints were computed on this z. The loader
+requires consistency: the file exists if, and only if, the jitter was applied.
+It exposes the content in `IsResult.coordinates_trace` (or `None`), and uses it
+to decide which instances lie inside a footprint
+(`IsResult.instances_in_footprint`).
 
 ### `projection_matrix.csv` (sc)
 
-`Row` ∈ {`Z_{1}`, `Z_{2}`} (o loader renomeia para `z_1`, `z_2`), mais uma
-coluna por feature selecionada. É a matriz A do PILOT, **arredondada a 4 casas**.
-Vale `z ≈ A · x`, com `x` a linha de `feature_process.csv`. A precisão completa
-está só no `Model`.
+`Row` ∈ {`Z_{1}`, `Z_{2}`} (the loader renames them to `z_1`, `z_2`), plus one
+column per selected feature. It is the PILOT matrix A, **rounded to 4
+decimals**. `z ≈ A · x` holds, with `x` the row of `feature_process.csv`. Full
+precision is only in the `Model`.
 
 ### `pilot_r2.csv` (eng)
 
-| coluna | tipo | conteúdo |
+| column | type | content |
 |---|---|---|
-| `variable` | str | nome da feature ou do algoritmo |
-| `kind` | str | `feature` ou `algorithm` |
-| `r2` | float | quadrado da correlação entre a variável processada e sua reconstrução a partir de z (`x̂ = z Bᵀ`, pilot.py:478) |
+| `variable` | str | feature or algorithm name |
+| `kind` | str | `feature` or `algorithm` |
+| `r2` | float | squared correlation between the processed variable and its reconstruction from z (`x̂ = z Bᵀ`, pilot.py:478) |
 
-As linhas vêm primeiro com as features selecionadas, na ordem de
-`feature_raw.csv`, e depois com os algoritmos, na ordem canônica. O `r2` diz
-quanto do plano 2D explica cada variável.
+The rows come first with the selected features, in `feature_raw.csv` order, and
+then with the algorithms, in canonical order. `r2` says how much of each
+variable the 2D plane explains.
 
 ---
 
-## Dados e PRELIM
+## Data and PRELIM
 
-Todos por instância (`Row`), com uma coluna por feature ou algoritmo.
+All per instance (`Row`), with one column per feature or algorithm.
 
-- **`feature_raw.csv`**: valores de entrada das features **selecionadas pelo
-  SIFTED**. As demais continuam em `metadata.csv`.
-- **`feature_process.csv`**: as mesmas features depois do PRELIM: recorte de
-  outliers em mediana ± `prelim.iqr_multiplier`·IQR (`bound.flag`),
-  deslocamento para valores positivos, Box-Cox e z-score (`norm.flag`). Ambos
-  exigem `auto.preproc`. Com o padrão, cada coluna tem média 0 e desvio 1.
-- **`algorithm_raw.csv`**: o `algo_*` de entrada.
-- **`algorithm_process.csv`**: o desempenho que o PILOT e o SIFTED usam.
-  - Com `abs_perf`, é o bruto; com desempenho relativo, é `1 − algo/melhor`
-    (ou `algo/melhor − 1` sem `max_perf`).
-  - Em seguida é deslocado para valores positivos e passa por Box-Cox e
-    z-score (`auto.preproc` e `norm.flag`; prelim.py:922).
-- **`algorithm_bin.csv`**: bool, "bom" segundo `run_info.regra_bom` (o `y_bin`
-  do instancespace).
-- **`good_algos.csv`**: `NumGoodAlgos` (int), o número de algoritmos bons na instância.
-- **`beta_easy.csv`**: `IsBetaEasy` (bool), igual a `NumGoodAlgos > perf.beta_threshold × n_algoritmos`.
-- **`portfolio.csv`**: `Best_Algorithm` (int), índice **1-based** do melhor
-  algoritmo por `algo_*` (argmax com `max_perf`, argmin sem). Empates são
-  sorteados com `general.seed`. Sempre vale de 1 a n. O loader converte para
-  nome em `instances["best_algo"]`.
+- **`feature_raw.csv`**: input values of the features **selected by SIFTED**.
+  The others remain in `metadata.csv` (the loader takes them from there).
+- **`feature_process.csv`**: the same features after PRELIM: outlier clipping
+  at median ± `prelim.iqr_multiplier`·IQR (`bound.flag`), shift to positive
+  values, Box-Cox and z-score (`norm.flag`). Both require `auto.preproc`. With
+  the defaults, each column has mean 0 and standard deviation 1.
+- **`algorithm_raw.csv`**: the input `algo_*`.
+- **`algorithm_process.csv`**: the performance PILOT and SIFTED use.
+  - With `abs_perf` it is the raw value; with relative performance it is
+    `1 − algo/best` (or `algo/best − 1` without `max_perf`).
+  - It is then shifted to positive values and goes through Box-Cox and z-score
+    (`auto.preproc` and `norm.flag`; prelim.py:922).
+- **`algorithm_bin.csv`**: bool, "good" according to `run_info.good_rule` (the
+  instancespace `y_bin`).
+- **`good_algos.csv`**: `NumGoodAlgos` (int), the number of good algorithms in
+  the instance.
+- **`beta_easy.csv`**: `IsBetaEasy` (bool), equal to
+  `NumGoodAlgos > perf.beta_threshold × n_algorithms`.
+- **`portfolio.csv`**: `Best_Algorithm` (int), **1-based** index of the best
+  algorithm by `algo_*` (argmax with `max_perf`, argmin without). **Ties are
+  broken at random** with `general.seed`. Always between 1 and n. The loader
+  converts it to a name in `instances["best_algo"]`.
+
+### Ties for the best observed value (loader)
+
+The loader does not trust `portfolio.csv` where several algorithms share the
+best value. It counts the ties with the PRELIM rule
+(`compute_binary_performance`: NaN is the worst value, and an algorithm is
+tied at the top when `np.equal(y_raw, y_best)`, with `y_best` the instance's
+max, or min without `max_perf`), in two columns of `IsResult.instances`:
+
+- `n_tied_best` (int): algorithms sharing the best value; 0 when the instance
+  has no values;
+- `best_algo_or_tie` (str): the best algorithm when `n_tied_best == 1`,
+  `"tie"` when it is larger, `None` when it is 0.
+
+Where there is no tie, the loader checks that `portfolio.csv` names the unique
+best algorithm and raises an error otherwise. In the four versioned datasets
+ties are common: iris 123 of 150 instances, diabetes 217 of 768,
+blood-transfusion-service-center 215 of 748, hill-valley 54 of 1212.
 
 ---
 
@@ -285,203 +332,216 @@ Todos por instância (`Row`), com uma coluna por feature ou algoritmo.
 
 ### `sifted_report.csv` (eng)
 
-Uma linha por feature do metadata, na ordem do metadata.
+One row per metadata feature, in metadata order.
 
-| coluna | tipo | conteúdo |
+| column | type | content |
 |---|---|---|
-| `feature` | str | nome |
-| `status` | str | `kept`, `dropped_correlation`, `dropped_redundancy`; raramente `dropped_preprocessing` (removida antes do SIFTED) ou `undetermined` (reconstrução inconsistente, também registrada em `run_info.avisos`) |
-| `rho` | float | a correlação de maior valor absoluto entre a feature e os algoritmos, com sinal |
-| `rho_algo` | str | algoritmo dessa correlação |
-| `pval` | float | p-valor dessa mesma correlação |
-| `n_algos_sig` | int | algoritmos com \|rho\| ≥ `sifted.rho` e p ≤ `sifted.pval` |
-| `cluster` | int ou vazio | cluster (1..k) das features que passaram pela correlação, quando houve clusterização |
-| `kept_instead` | str ou vazio | só em `dropped_redundancy`: a feature mantida no mesmo cluster |
+| `feature` | str | name |
+| `status` | str | `kept`, `dropped_correlation`, `dropped_redundancy`; rarely `dropped_preprocessing` (removed before SIFTED) or `undetermined` (inconsistent reconstruction, also recorded in `run_info.warnings`) |
+| `rho` | float | the correlation with the largest absolute value between the feature and the algorithms, with its sign |
+| `rho_algo` | str | algorithm of that correlation |
+| `pval` | float | p-value of that same correlation |
+| `n_algos_sig` | int | algorithms with \|rho\| ≥ `sifted.rho` and p ≤ `sifted.pval` |
+| `cluster` | int or empty | cluster (1..k) of the features that passed the correlation filter, when there was clustering |
+| `kept_instead` | str or empty | only in `dropped_redundancy`: the feature kept in the same cluster |
 
-Regras, reconstruídas de `Model.sifted` (sifted.py:774-808 e 1056-1078):
+Rules, reconstructed from `Model.sifted` (sifted.py:774-808 and 1056-1078):
 
-- **Passa na correlação** a feature que:
-  - é a mais correlacionada com algum algoritmo, **ou**
-  - tem \|rho\| ≥ `sifted.rho` com p ≤ `sifted.pval` para algum algoritmo.
-- As que não passam ficam como `dropped_correlation`.
-- **Clusterização:** se sobram mais de 3 features e mais que `sifted.k`, elas
-  são agrupadas em `sifted.k` clusters, e um algoritmo genético mantém
-  **exatamente uma por cluster**. As demais ficam como `dropped_redundancy`.
-- Se não há clusterização, todas as que passaram na correlação ficam como `kept`.
+- A feature **passes the correlation filter** when it:
+  - is the one most correlated with some algorithm, **or**
+  - has \|rho\| ≥ `sifted.rho` with p ≤ `sifted.pval` for some algorithm.
+- Those that do not pass are `dropped_correlation`.
+- **Clustering:** if more than 3 features and more than `sifted.k` remain,
+  they are grouped into `sifted.k` clusters, and a genetic algorithm keeps
+  **exactly one per cluster**. The others are `dropped_redundancy`.
+- Without clustering, every feature that passed the correlation filter is
+  `kept`.
 
 ### `sifted_correlations.csv` (eng)
 
-Formato longo, com a matriz completa: uma linha por par feature x algoritmo,
-nas colunas `feature`, `algorithm`, `rho` e `pval` (float). É a correlação de
-Pearson entre a feature processada e o desempenho processado
-(`algorithm_process.csv`), sobre todas as features que entraram no SIFTED.
-Tem só o cabeçalho se o SIFTED não calculou correlações. O loader expõe o
-formato longo e as matrizes `IsResult.sifted_rho` e `IsResult.sifted_pval`
-(feature x algoritmo).
+Long format, with the full matrix: one row per feature x algorithm pair, in the
+columns `feature`, `algorithm`, `rho` and `pval` (float). It is the Pearson
+correlation between the processed feature and the processed performance
+(`algorithm_process.csv`), over every feature that entered SIFTED. It has only
+the header if SIFTED computed no correlations. The loader exposes the long
+format and the matrices `IsResult.sifted_rho` and `IsResult.sifted_pval`
+(feature x algorithm).
 
 ### `sifted_silhouette.csv` (eng)
 
-| coluna | tipo | conteúdo |
+| column | type | content |
 |---|---|---|
-| `k` | int | número de clusters testado: 3 .. (features que passaram na correlação) − 1 |
-| `silhouette` | float | silhueta média com distância de correlação |
-| `used` | bool | `k == sifted.k`; é o k de fato usado, fixo nas opções |
-| `best` | bool | o k de maior silhueta; só é sugerido no log, não é usado |
+| `k` | int | number of clusters tried: 3 .. (features that passed the correlation filter) − 1 |
+| `silhouette` | float | mean silhouette with correlation distance |
+| `used` | bool | `k == sifted.k`; the k actually used, fixed in the options |
+| `best` | bool | the k with the highest silhouette; instancespace only suggests it in the log, it does not use it |
 
-Tem só o cabeçalho quando não houve clusterização.
+It has only the header when there was no clustering. In the versioned
+datasets the k used is 6 in all four; the highest silhouette is at k = 3 in
+diabetes and k = 4 in hill-valley.
 
 ---
 
 ## PYTHIA
 
-O PYTHIA treina um classificador por algoritmo (SVM por padrão,
-`pythia.classifier`) que prevê "bom" (`algorithm_bin.csv`) a partir de z. Os
-hiperparâmetros são ajustados por validação cruzada estratificada com
-`pythia.cv_folds` partes.
+PYTHIA trains one classifier per algorithm (SVM by default,
+`pythia.classifier`) that predicts "good" (`algorithm_bin.csv`) from z. The
+hyperparameters are tuned by stratified cross-validation with
+`pythia.cv_folds` folds.
 
-- **`algorithm_svm.csv`** (sc): bool, `y_hat`. É a previsão de `predict()` do
-  classificador final, **dentro da amostra**. O loader a coloca em `algo_<a>_svm`.
-- **`portfolio_svm.csv`** (sc): `Best_Algorithm` (int), igual a `selection0`,
-  índice **0-based**, com **-1 = nenhum**. O loader converte para nome em
-  `instances["best_algo_svm"]`.
+- **`algorithm_svm.csv`** (sc): bool, `y_hat`. It is the `predict()` of the
+  final classifier, **in sample**. The loader puts it in `algo_<a>_svm`.
+- **`portfolio_svm.csv`** (sc): `Best_Algorithm` (int), equal to
+  `selection0`, **0-based** index, with **-1 = none**. The loader converts it
+  to a name in `instances["best_algo_svm"]`.
 
 ### `pythia_proba.csv` (eng)
 
-`Row`, depois uma coluna `<algo>` por algoritmo, depois uma `<algo>_hat` por
-algoritmo, na ordem canônica. Todos os valores são floats em [0, 1] e significam
-**P(ruim)**: a probabilidade (`predict_proba`, com escala de Platt no SVM) de o
-algoritmo **não** ser bom na instância. P(bom) = 1 − valor.
+`Row`, then one `<algo>` column per algorithm, then one `<algo>_hat` per
+algorithm, in canonical order. Every value is a float in [0, 1] and means
+**P(bad)**: the probability (`predict_proba`, with Platt scaling for the SVM)
+that the algorithm is **not** good on the instance. P(good) = 1 − value.
 
-- **`<algo>` = `pr0_sub`, o padrão:** probabilidade **fora da amostra**, de
-  `cross_val_predict` com o classificador ajustado. Cada instância é avaliada
-  por um modelo que não a viu. É a estimativa honesta.
-- **`<algo>_hat` = `pr0_hat`:** o modelo final, treinado em todas as
-  instâncias e avaliado nelas mesmas, **dentro da amostra**. É mais otimista.
-- `y_hat` (`algorithm_svm.csv`) pode discordar de `pr0_hat < 0.5`, porque
-  `predict` e `predict_proba` do SVC não são equivalentes.
-  `run_info.pythia.y_hat_discorda_de_pr0_hat` conta os pares em desacordo.
+- **`<algo>` = `pr0_sub`, the default:** **out-of-sample** probability, from
+  `cross_val_predict` with the tuned classifier. Each instance is evaluated by
+  a model that did not see it. It is the honest estimate.
+- **`<algo>_hat` = `pr0_hat`:** the final model, trained on all instances and
+  evaluated on them, **in sample**. It is more optimistic.
+- `y_hat` (`algorithm_svm.csv`) can disagree with `pr0_hat < 0.5`, because the
+  SVC's `predict` and `predict_proba` are not equivalent.
+  `run_info.pythia.y_hat_disagrees_with_pr0_hat` counts the pairs in
+  disagreement.
 
-O engine recusa, antes de rodar, algoritmos cujo nome colida com `<outro>_hat`.
-O loader expõe `IsResult.pythia_proba` (pr0_sub) e `IsResult.pythia_proba_hat`
-(pr0_hat), ambos com colunas = algoritmos.
+The engine refuses, before running, algorithms whose name clashes with
+`<other>_hat`. The loader exposes `IsResult.pythia_proba` (pr0_sub) and
+`IsResult.pythia_proba_hat` (pr0_hat), both with columns = algorithms.
 
 ### `pythia_confusion.csv` (eng)
 
-`Algorithm` (str), `tn`, `fp`, `fn`, `tp` (int). É a matriz de confusão por
-algoritmo: a verdade é "bom" (`algorithm_bin.csv`), e a previsão é a da
-validação cruzada (`y_sub`, fora da amostra).
+`Algorithm` (str), `tn`, `fp`, `fn`, `tp` (int). The confusion matrix per
+algorithm: the truth is "good" (`algorithm_bin.csv`), and the prediction is
+the cross-validation one (`y_sub`, out of sample).
 
-- positivo = bom;
-- `tn + fp` = instâncias ruins;
-- `fn + tp` = instâncias boas;
-- a soma de cada linha é `n_instancias`.
+- positive = good;
+- `tn + fp` = bad instances;
+- `fn + tp` = good instances;
+- each row sums to `n_instances`.
 
-Acurácia, precisão e recall calculados daqui batem com as colunas `CV_model_*`
-de `svm_table.csv`. O engine confere isso, porque o instancespace usa outra
-ordem de colunas no caminho de avaliação.
+Accuracy, precision and recall computed from here match the `CV_model_*`
+columns of `svm_table.csv`. The engine checks this, because instancespace uses
+another column order in its evaluation path.
 
 ### `pythia_selection.csv` (eng)
 
-`Row`, `selection0`, `selection1` (nome de algoritmo; vazio = nenhum).
+`Row`, `selection0`, `selection1` (algorithm name; empty = none).
 
-- **`selection0`:** entre os algoritmos com `y_hat` verdadeiro, o de maior
-  precisão de validação cruzada. Fica vazio quando nenhum é previsto bom. É o
-  mesmo que `portfolio_svm.csv`.
-- **`selection1`:** igual a `selection0`, mas, quando não há recomendação, usa
-  o algoritmo com maior fração de instâncias boas. Nunca fica vazio.
-- `run_info.pythia` traz as contagens `selection0_nenhum` e
-  `selection1_difere_de_selection0`.
+- **`selection0`:** among the algorithms with `y_hat` true, the one with the
+  highest cross-validation precision. Empty when none is predicted good. It
+  is the same as `portfolio_svm.csv`.
+- **`selection1`:** equal to `selection0`, but, when there is no
+  recommendation, it uses the algorithm with the largest fraction of good
+  instances. Never empty.
+- `run_info.pythia` has the counts `instance_algorithm_pairs`,
+  `y_hat_disagrees_with_pr0_hat`, `selection0_none` and
+  `selection1_differs_from_selection0`.
 
 ### `svm_table.csv` (sc)
 
-`Row` é um algoritmo, `Oracle` ou `Selector`. Valores arredondados a 3 casas;
-percentuais a 1 casa; célula vazia onde não se aplica.
+`Row` is an algorithm, `Oracle` or `Selector`. Values rounded to 3 decimals;
+percentages to 1 decimal; empty cell where it does not apply.
 
-| coluna | algoritmo | `Oracle` | `Selector` |
+| column | algorithm | `Oracle` | `Selector` |
 |---|---|---|---|
-| `Avg_Perf_all_instances`, `Std_Perf_all_instances` | média e desvio de `algo_*` em todas as instâncias | do melhor desempenho por instância | do algoritmo de `selection1` |
-| `Probability_of_good` | fração de instâncias boas | 1 | fração em que o algoritmo de `selection1` é bom |
-| `Avg_Perf_selected_instances`, `Std_Perf_selected_instances` | de `algo_*` onde `y_hat` é verdadeiro | vazio | do algoritmo de `selection0` (sem as instâncias "nenhum") |
-| `CV_model_accuracy` | acurácia de CV (%) | vazio | vazio |
-| `CV_model_precision`, `CV_model_recall` | precisão e recall de CV (%) | vazio | precisão e recall do seletor, definição do MATLAB (pythia.py:2006-2016) |
-| `BoxConstraint`, `KernelScale` | hiperparâmetros do SVM | vazio | vazio |
+| `Avg_Perf_all_instances`, `Std_Perf_all_instances` | mean and std of `algo_*` over all instances | of the best performance per instance | of the `selection1` algorithm |
+| `Probability_of_good` | fraction of good instances | 1 | fraction where the `selection1` algorithm is good |
+| `Avg_Perf_selected_instances`, `Std_Perf_selected_instances` | of `algo_*` where `y_hat` is true | empty | of the `selection0` algorithm (without the "none" instances) |
+| `CV_model_accuracy` | CV accuracy (%) | empty | empty |
+| `CV_model_precision`, `CV_model_recall` | CV precision and recall (%) | empty | precision and recall of the selector, MATLAB definition (pythia.py:2006-2016) |
+| `BoxConstraint`, `KernelScale` | SVM hyperparameters | empty | empty |
+
+The Selector recall follows the MATLAB definition, which counts as a miss
+every instance with some good algorithm that was not recommended; with
+several good algorithms per instance it stays close to 50%.
 
 ---
 
 ## CLOISTER
 
-### `bounds.csv` e `bounds_prunned.csv` (sc)
+### `bounds.csv` and `bounds_prunned.csv` (sc)
 
-`Row` (`bnd_pnt_1` … `bnd_pnt_m`), `z_1`, `z_2`. São os vértices, em ordem e
-sem repetir o primeiro, de um polígono convexo em z: a fronteira estimada da
-região onde podem existir instâncias.
+`Row` (`bnd_pnt_1` … `bnd_pnt_m`), `z_1`, `z_2`. The vertices, in order and
+without repeating the first, of a convex polygon in z: the estimated boundary
+of the region where instances can exist.
 
-- A fronteira é obtida projetando com A as combinações de mínimo e máximo de
-  cada feature processada e tomando o fecho convexo.
-- `bounds_prunned.csv` usa só as combinações compatíveis com as correlações
-  significativas entre features (`cloister.p_val`, `cloister.c_thres`). Pode
-  ser igual a `bounds.csv`.
-- Com mais de `cloister.max_features` features (padrão 20), o CLOISTER não
-  enumera as combinações: usa o fecho convexo das instâncias projetadas, e os
-  dois arquivos saem iguais (cloister.py:190-203).
+- The boundary is obtained by projecting with A the min/max combinations of
+  each processed feature and taking the convex hull.
+- `bounds_prunned.csv` uses only the combinations compatible with the
+  significant correlations between features (`cloister.p_val`,
+  `cloister.c_thres`). It can be equal to `bounds.csv`.
+- With more than `cloister.max_features` features (default 20), CLOISTER does
+  not enumerate the combinations: it uses the convex hull of the projected
+  instances, and both files are equal (cloister.py:190-203).
 
-O loader expõe `IsResult.bounds` e `IsResult.bounds_pruned`, como `Poligono`.
+The loader exposes `IsResult.bounds` and `IsResult.bounds_pruned`, as
+`Polygon`.
 
 ---
 
 ## TRACE
 
-### Esquema das footprints
+### Footprint schema
 
-Vale para `footprint_<algo>_good.csv`, `footprint_<algo>_best.csv`,
-`footprint_space.csv` e `footprint_hard.csv`.
+Applies to `footprint_<algo>_good.csv`, `footprint_<algo>_best.csv`,
+`footprint_space.csv` and `footprint_hard.csv`.
 
-| coluna | tipo | conteúdo |
+| column | type | content |
 |---|---|---|
-| `Row` | int | contador de vértices, 1..k; **não** é rótulo de instância |
-| `Part` | int | parte do (multi)polígono, 1..p |
-| `Ring` | str | `exterior` ou `hole_<j>` (furo j da parte) |
-| `Vertex` | int | ordem do vértice no anel, 1..; o primeiro não se repete no fim |
-| `z_1`, `z_2` | float | coordenadas |
+| `Row` | int | vertex counter, 1..k; **not** an instance label |
+| `Part` | int | part of the (multi)polygon, 1..p |
+| `Ring` | str | `exterior` or `hole_<j>` (hole j of the part) |
+| `Vertex` | int | order of the vertex in the ring, 1..; the first is not repeated at the end |
+| `z_1`, `z_2` | float | coordinates |
 
-- Cada `Part` tem um anel `exterior` e zero ou mais furos.
-- O loader devolve um `Poligono` por `Part` (`exterior` e `furos`), com área
-  pela fórmula do laço.
-- Ausência de arquivo = footprint **vazia**. O loader marca o status como
-  `vazia`, nunca `ok`; como `suspeita`, quando a pureza fica abaixo de
-  `trace.purity`; e `ok` nos demais casos.
-- As footprints são calculadas sobre o z de `coordinates_trace.csv`, quando
-  ele existe.
+- Each `Part` has one `exterior` ring and zero or more holes.
+- The loader returns one `Polygon` per `Part` (`exterior` and `holes`), with
+  the area by the shoelace formula, grouped in a `Footprint` (`polygons`,
+  `status`, `file`, `normalized_area`, `normalized_density`, `purity`).
+- Missing file = **empty** footprint. The loader sets the status to `empty`
+  (never `ok`); to `suspect` when the purity is below `trace.purity`; and to
+  `ok` otherwise.
+- The footprints are computed on the z of `coordinates_trace.csv`, when it
+  exists.
 
-### Arquivos
+### Files
 
-- **`footprint_<algo>_good.csv`** (sc): região onde o algoritmo é bom
-  (`algorithm_bin.csv`), mantida só onde a pureza é ≥ `trace.purity`.
-  - Com `trace.use_sim=false` (padrão do engine) usa o desempenho observado;
-    com `true`, as previsões do PYTHIA.
-  - O nome do arquivo usa uma versão sanitizada do nome do algoritmo
-    (`_portable_stems` do instancespace). O nome exato está em
-    `run_info.arquivos_footprint`, com `null` para as vazias.
-- **`footprint_<algo>_best.csv`** (sc): o mesmo, para a região onde o
-  algoritmo é o melhor (`portfolio.csv`). Com `trace.contra` (padrão),
-  sobreposições entre footprints best de algoritmos diferentes são resolvidas
-  e removidas (trace.py:646-648). As footprints good não passam por essa etapa.
-- **`footprint_space.csv`** (eng): região de todas as instâncias. A área e a
-  densidade dela são o denominador das colunas `*_Normalized`.
-- **`footprint_hard.csv`** (eng): região das instâncias **não** beta-fáceis
-  (`IsBetaEasy` falso), o "beta-footprint" do TRACE.
-- As métricas das duas últimas ficam em `run_info.footprints_especiais.<space|hard>`:
-  `arquivo`, `area`, `densidade`, `pureza`, `elementos` (instâncias
-  cobertas), `elementos_bons` e, só no `hard`, `area_normalizada` e
-  `densidade_normalizada`.
+- **`footprint_<algo>_good.csv`** (sc): region where the algorithm is good
+  (`algorithm_bin.csv`), kept only where the purity is ≥ `trace.purity`.
+  - With `trace.use_sim=false` (the engine's default) it uses the observed
+    performance; with `true`, the PYTHIA predictions.
+  - The file name uses a sanitized version of the algorithm name
+    (instancespace's `_portable_stems`). The exact name is in
+    `run_info.footprint_files`, with `null` for the empty ones.
+- **`footprint_<algo>_best.csv`** (sc): the same, for the region where the
+  algorithm is the best (`portfolio.csv`, so ties are broken at random here
+  too). With `trace.contra` (default), overlaps between the best footprints of
+  different algorithms are resolved and removed (trace.py:646-648). The good
+  footprints do not go through that step.
+- **`footprint_space.csv`** (eng): region of all instances. Its area and
+  density are the denominators of the `*_Normalized` columns.
+- **`footprint_hard.csv`** (eng): region of the instances that are **not**
+  beta-easy (`IsBetaEasy` false), the TRACE "beta footprint".
+- The metrics of the last two are in `run_info.special_footprints.<space|hard>`:
+  `file`, `area`, `density`, `purity`, `elements` (covered instances),
+  `good_elements` and, only in `hard`, `normalized_area` and
+  `normalized_density`.
 
 ### `footprint_performance.csv` (sc)
 
-`Row` (algoritmo), `Area_Good_Normalized`, `Density_Good_Normalized`,
-`Purity_Good`, `Area_Best_Normalized`, `Density_Best_Normalized` e
-`Purity_Best` (float, **3 casas**).
+`Row` (algorithm), `Area_Good_Normalized`, `Density_Good_Normalized`,
+`Purity_Good`, `Area_Best_Normalized`, `Density_Best_Normalized` and
+`Purity_Best` (float, **3 decimals**).
 
-- Área e densidade são normalizadas pelas do espaço (`footprint_space`).
-- A pureza é a fração de instâncias cobertas que são boas (ou melhores).
-- Vale 0 quando a footprint é vazia.
-- As áreas e densidades absolutas não são gravadas.
+- Area and density are normalized by those of the space (`footprint_space`).
+- Purity is the fraction of covered instances that are good (or best).
+- It is 0 when the footprint is empty.
+- The absolute areas and densities are not written.

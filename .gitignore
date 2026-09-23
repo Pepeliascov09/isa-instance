@@ -1,4 +1,4 @@
-# ambiente
+# environments
 .venv/
 .venv-isa/
 venv/
@@ -7,13 +7,13 @@ __pycache__/
 *.pyc
 *.pyo
 
-# execucoes disparadas pela interface (Novo instance space)
+# runs launched from the interface (New instance space)
 runs/
 
-# pasta descartavel de comparacao com o PyHard
+# disposable folder for the comparison with PyHard (legacy name)
 comparacao_pyhard/
 
-# IDEs e editores
+# IDEs and editors
 .vscode/
 .idea/
 *.swp
@@ -22,7 +22,7 @@ comparacao_pyhard/
 .spyproject/
 .ipynb_checkpoints/
 
-# sistema
+# system
 .DS_Store
 Thumbs.db
 desktop.ini

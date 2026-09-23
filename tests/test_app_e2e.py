@@ -1,20 +1,20 @@
-"""Testes de ponta a ponta de isaspace.ui.app num Chromium real (Playwright).
+"""End-to-end tests of isaspace.ui.app in a real Chromium (Playwright).
 
-Sobe o app uma vez (python -m isaspace.ui.app, com o interpretador do pytest)
-e abre uma pagina NOVA a cada teste, portanto uma sessao nova do servidor e um
-estado global novo. A maioria dos testes roda nos quatro datasets de
-resultados/is/. O lasso e desenhado com o mouse, dentro da area de plotagem, a
-partir das coordenadas de tela calculadas pelo proprio BokehJS.
+Starts the app once (python -m isaspace.ui.app, with the pytest interpreter)
+and opens a NEW page for each test, hence a new server session and a new
+global state. Most tests run on the four datasets of resultados/is/. The
+lasso is drawn with the mouse, inside the plot area, from screen coordinates
+computed by BokehJS itself.
 
-O servidor usa uma pasta runs/ temporaria (--runs): os testes do bloco "Novo
-instance space" rodam o engine de verdade, em subprocesso, e as execucoes
-ficam nela. O metadata de exemplo do instancespace e baixado do GitHub (tag
-v0.3.0) para o cache do pytest; sem rede, esse teste e pulado.
+The server uses a temporary runs/ folder (--runs): the tests of the "New
+instance space" block run the real engine, in a subprocess, and the runs stay
+there. The instancespace example metadata is downloaded from GitHub (tag
+v0.3.0) to the pytest cache; without network, that test is skipped.
 
-Precisa do .venv-isa com playwright e do Chromium do Playwright
-(python -m playwright install chromium). Uso, da raiz:
+Needs the .venv-isa with playwright and the Playwright Chromium
+(python -m playwright install chromium). Usage, from the root:
     .venv-isa/bin/python -m pytest tests/test_app_e2e.py
-    .venv-isa/bin/python -m pytest tests/ -m "not e2e"     (so os rapidos)
+    .venv-isa/bin/python -m pytest tests/ -m "not e2e"     (only the fast ones)
 """
 
 import json
@@ -33,18 +33,21 @@ import pytest
 
 sync_api = pytest.importorskip("playwright.sync_api")
 
-RAIZ = Path(__file__).resolve().parents[1]
-PASTA_IS = RAIZ / "resultados" / "is"
+ROOT = Path(__file__).resolve().parents[1]
+IS_DIR = ROOT / "resultados" / "is"
 DATASETS = ["iris", "diabetes", "blood-transfusion-service-center", "hill-valley"]
-TITULO = "isa-instance"
-TIMEOUT = 25  # s por espera
-TIMEOUT_EXECUCAO = 180   # s para o engine terminar (exemplo ~5 s, ciclo ~10 s)
-URL_EXEMPLO = ("https://raw.githubusercontent.com/andremun/pyInstanceSpace/v0.3.0/"
+TITLE = "isa-instance"
+TIMEOUT = 25  # s per wait
+RUN_TIMEOUT = 180   # s for the engine to finish (example ~5 s, cycle ~10 s)
+EXAMPLE_URL = ("https://raw.githubusercontent.com/andremun/pyInstanceSpace/v0.3.0/"
                "examples/data/metadata.csv")
+# instances with a tie for the best observed value
+TIES = {"iris": 123, "diabetes": 217, "blood-transfusion-service-center": 215, "hill-valley": 54}
+UPSIDE_DOWN = "If this ranking looks upside down for your problem, the direction is probably wrong."
 
 pytestmark = pytest.mark.e2e
 
-# plots Bokeh renderizados (so a aba ativa existe no DOM: Tabs dynamic=True)
+# rendered Bokeh plots (only the active tab is in the DOM: Tabs dynamic=True)
 PLOTS_JS = r"""() => {
   const out = [];
   for (const v of Bokeh.index.all_views()) {
@@ -59,25 +62,25 @@ PLOTS_JS = r"""() => {
       const n = cols.length ? data[cols[0]].length : 0;
       const g = r.glyph, fa = g.fill_alpha, fc = g.fill_color;
       let hi = null;
-      // opacidade por ponto; se todos tem a mesma, o HoloViews grava um escalar
+      // per-point opacity; if all are equal, HoloViews writes a scalar
       if (fa && fa.field !== undefined && data[fa.field]) hi = [...data[fa.field]].filter(a => a > 0.5).length;
       else if (fa && typeof fa.value === 'number') hi = fa.value > 0.5 ? n : 0;
-      rs.push({glyph: g.type, n, sel: [...ds.selected.indices].length, hi, tem_row: 'Row' in data,
+      rs.push({glyph: g.type, n, sel: [...ds.selected.indices].length, hi, has_row: 'Row' in data,
                mapper: fc && fc.transform ? fc.transform.type : null});
     }
     const tb = m.toolbar;
     const xr = m.x_range;
-    out.push({titulo: m.title.text || "", rs,
-              fatores: xr && xr.factors ? [...xr.factors].map(String) : null,
-              ativo: tb && tb.active_drag && tb.active_drag.type ? tb.active_drag.type : null});
+    out.push({title: m.title.text || "", rs,
+              factors: xr && xr.factors ? [...xr.factors].map(String) : null,
+              active: tb && tb.active_drag && tb.active_drag.type ? tb.active_drag.type : null});
   }
   return out;
 }"""
-# pontos do scatter da aba 0 em coordenadas de pagina, e o retangulo do frame
-TELA_JS = r"""(prefixo) => {
+# points of the tab 0 scatter in page coordinates, and the frame rectangle
+SCREEN_JS = r"""(prefix) => {
   for (const v of Bokeh.index.all_views()) {
     const m = v.model;
-    if (!m || !v.frame || !m.title || !(m.title.text || "").startsWith(prefixo)) continue;
+    if (!m || !v.frame || !m.title || !(m.title.text || "").startsWith(prefix)) continue;
     for (const r of m.renderers) {
       const d0 = r.data_source && r.data_source.data;
       if (!d0) continue;
@@ -91,11 +94,11 @@ TELA_JS = r"""(prefixo) => {
   }
   return null;
 }"""
-# rotulos Row das instancias selecionadas no scatter da aba Instance Space
-SELECIONADAS_JS = r"""(prefixo) => {
+# Row labels of the instances selected in the Instance Space scatter
+SELECTED_JS = r"""(prefix) => {
   for (const v of Bokeh.index.all_views()) {
     const m = v.model;
-    if (!m || !v.frame || !m.title || !(m.title.text || "").startsWith(prefixo)) continue;
+    if (!m || !v.frame || !m.title || !(m.title.text || "").startsWith(prefix)) continue;
     for (const r of m.renderers) {
       const ds = r.data_source;
       if (!ds || !ds.data) continue;
@@ -106,12 +109,27 @@ SELECIONADAS_JS = r"""(prefixo) => {
   }
   return null;
 }"""
-# colunas de todas as tabelas (Tabulator) do documento que tenham `coluna`
-TABELA_JS = r"""(coluna) => {
+# values of a column of the points renderer (the one with Row) of a plot
+COLUMN_JS = r"""([prefix, col]) => {
+  for (const v of Bokeh.index.all_views()) {
+    const m = v.model;
+    if (!m || !v.frame || !m.title || !(m.title.text || "").startsWith(prefix)) continue;
+    for (const r of m.renderers) {
+      const d0 = r.data_source && r.data_source.data;
+      if (!d0) continue;
+      const data = d0 instanceof Map ? Object.fromEntries(d0) : d0;
+      if (!('Row' in data) || !(col in data)) continue;
+      return [...data[col]].map(x => x === null ? null : String(x));
+    }
+  }
+  return null;
+}"""
+# columns of every table (Tabulator) of the document that has `column`
+TABLE_JS = r"""(column) => {
   for (const m of Bokeh.documents[0]._all_models.values()) {
     if (m.type !== 'ColumnDataSource' || !m.data) continue;
     const data = m.data instanceof Map ? Object.fromEntries(m.data) : m.data;
-    if (coluna in data && 'status' in data) {
+    if (column in data && 'status' in data) {
       const out = {};
       for (const k of Object.keys(data)) out[k] = [...data[k]].map(v => v === null ? null : String(v));
       return out;
@@ -119,8 +137,8 @@ TABELA_JS = r"""(coluna) => {
   }
   return null;
 }"""
-# texto de um componente Panel, atravessando os shadow roots (inner_text nao entra neles)
-TEXTO_JS = r"""(e) => {
+# text of a Panel component, going through the shadow roots (inner_text does not)
+TEXT_JS = r"""(e) => {
   const f = (n) => {
     let s = n.shadowRoot ? f(n.shadowRoot) : "";
     for (const c of n.childNodes) {
@@ -132,45 +150,58 @@ TEXTO_JS = r"""(e) => {
   };
   return f(e).replace(/[ \t]+/g, " ");
 }"""
-RE_STATUS = re.compile(r"Sem seleção\.|Seleção vazia|\d+ instâncias selecionadas")
-ESPACO = "Espaço de instâncias"
-EXPLORER = "z_1 x z_2"   # titulo do scatter do Data Explorer com os eixos padrao
+# rows (cell texts) of the Markdown tables inside a Panel component
+TABLE_ROWS_JS = r"""(e) => {
+  const roots = [e], rows = [];
+  while (roots.length) {
+    const n = roots.shift();
+    if (n.shadowRoot) roots.push(n.shadowRoot);
+    for (const c of n.children || []) roots.push(c);
+    if (n.tagName === "TR" && n.querySelector("td"))
+      rows.push([...n.querySelectorAll("td")].map(td => td.textContent.trim()));
+  }
+  return rows;
+}"""
+RE_STATUS = re.compile(r"No selection\.|Empty selection|\d+ instances selected")
+SPACE = "Instance space"
+EXPLORER = "z_1 x z_2"   # title of the Data Explorer scatter with the default axes
+RECOMMENDED = "Recommended algorithm"
 
 
-def _porta_livre():
+def _free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
 @pytest.fixture(scope="session")
-def pasta_runs(tmp_path_factory):
+def runs_dir(tmp_path_factory):
     return tmp_path_factory.mktemp("runs")
 
 
 @pytest.fixture(scope="session")
-def servidor(pasta_runs):
-    if not all((PASTA_IS / d / "run_info.json").is_file() for d in DATASETS):
-        pytest.skip("resultados/is incompleto (rode scripts/run_is_all.py no .venv-isa)")
-    porta = _porta_livre()
+def server(runs_dir):
+    if not all((IS_DIR / d / "run_info.json").is_file() for d in DATASETS):
+        pytest.skip("resultados/is incomplete (run scripts/run_is_all.py in the .venv-isa)")
+    port = _free_port()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "isaspace.ui.app", "--no-show", "--port", str(porta),
-         "--runs", str(pasta_runs)],
-        cwd=RAIZ, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        [sys.executable, "-m", "isaspace.ui.app", "--no-show", "--port", str(port),
+         "--runs", str(runs_dir)],
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
-    url = f"http://localhost:{porta}/"
-    inicio = time.time()
+    url = f"http://localhost:{port}/"
+    start = time.time()
     while True:
         if proc.poll() is not None:
-            pytest.fail("o app morreu ao subir:\n" + proc.stdout.read().decode()[-3000:])
+            pytest.fail("the app died on startup:\n" + proc.stdout.read().decode()[-3000:])
         try:
             if urllib.request.urlopen(url, timeout=2).status == 200:
                 break
         except OSError:
             pass
-        if time.time() - inicio > 90:
+        if time.time() - start > 90:
             proc.kill()
-            pytest.fail("o app nao respondeu em 90 s")
+            pytest.fail("the app did not answer in 90 s")
         time.sleep(0.5)
     yield url
     proc.terminate()
@@ -181,547 +212,618 @@ def servidor(pasta_runs):
 
 
 @pytest.fixture(scope="session")
-def navegador():
+def browser():
     with sync_api.sync_playwright() as p:
         try:
             b = p.chromium.launch()
         except Exception as exc:  # noqa: BLE001
-            pytest.skip(f"Chromium do Playwright indisponivel: {exc}")
+            pytest.skip(f"Playwright Chromium unavailable: {exc}")
         yield b
         b.close()
 
 
-class Tela:
-    """Pagina do app com os passos que os testes usam."""
+class Screen:
+    """App page with the steps the tests use."""
 
     def __init__(self, page):
         self.page = page
 
-    # -------------------------------------------------------------- esperas
-    def esperar(self, cond, msg, timeout=TIMEOUT):
-        fim = time.time() + timeout
-        ultimo = None
-        while time.time() < fim:
+    # ---------------------------------------------------------------- waits
+    def wait_for(self, cond, msg, timeout=TIMEOUT):
+        end = time.time() + timeout
+        last = None
+        while time.time() < end:
             try:
-                ultimo = cond()
-                if ultimo:
-                    return ultimo
-            except Exception as exc:  # noqa: BLE001 -- DOM em transicao
-                ultimo = exc
+                last = cond()
+                if last:
+                    return last
+            except Exception as exc:  # noqa: BLE001 -- DOM in transition
+                last = exc
             self.page.wait_for_timeout(200)
-        raise AssertionError(f"{msg} (ultimo valor: {ultimo!r})")
+        raise AssertionError(f"{msg} (last value: {last!r})")
 
-    # -------------------------------------------------------------- leitura
+    # -------------------------------------------------------------- reading
     def plots(self):
         return self.page.evaluate(PLOTS_JS)
 
-    def plot(self, prefixo):
-        achados = [p for p in self.plots() if p["titulo"].startswith(prefixo)]
-        return achados[0] if achados else None
+    def plot(self, prefix):
+        found = [p for p in self.plots() if p["title"].startswith(prefix)]
+        return found[0] if found else None
 
-    def pontos(self, prefixo):
-        """Renderer de pontos (tem a coluna Row) do plot com esse titulo."""
-        p = self.plot(prefixo)
+    def points(self, prefix):
+        """Points renderer (it has the Row column) of the plot with this title."""
+        p = self.plot(prefix)
         if p is None:
             return None
-        return next((r for r in p["rs"] if r["tem_row"]), None)
+        return next((r for r in p["rs"] if r["has_row"]), None)
+
+    def column(self, prefix, col):
+        return self.page.evaluate(COLUMN_JS, [prefix, col])
 
     def status(self):
         loc = self.page.get_by_text(RE_STATUS)
         return loc.first.inner_text() if loc.count() else ""
 
     def n_status(self):
-        m = re.search(r"(\d+) instâncias selecionadas", self.status())
+        m = re.search(r"(\d+) instances selected", self.status())
         if m:
             return int(m.group(1))
-        return 0 if "Seleção vazia" in self.status() else None
+        return 0 if "Empty selection" in self.status() else None
 
-    def sidebar_selecao(self):
-        return self.page.get_by_text(re.compile(r"^Seleção: ")).first.inner_text()
+    def sidebar_selection(self):
+        return self.page.get_by_text(re.compile(r"^Selection: ")).first.inner_text()
 
-    def valor_select(self, rotulo):
-        return self.page.get_by_label(rotulo, exact=True).evaluate(
+    def select_value(self, label):
+        return self.page.get_by_label(label, exact=True).evaluate(
             "e => e.options[e.selectedIndex].text")
 
-    # -------------------------------------------------------------- acoes
-    def abrir(self, url, dataset):
+    def text(self, css_class):
+        """Text of the first component with the css_class ('' if none)."""
+        loc = self.page.locator(f".{css_class}")
+        return loc.first.evaluate(TEXT_JS) if loc.count() else ""
+
+    def table_rows(self, css_class):
+        loc = self.page.locator(f".{css_class}")
+        return loc.first.evaluate(TABLE_ROWS_JS) if loc.count() else []
+
+    # -------------------------------------------------------------- actions
+    def open(self, url, dataset):
         self.page.goto(url)
         self.page.wait_for_function("window.Bokeh && Bokeh.documents.length > 0", timeout=60000)
-        self.esperar(lambda: self.pontos(ESPACO), "scatter da aba Instance Space nao apareceu", 60)
-        if self.page.evaluate("document.title") != f"{TITULO} - {dataset}":
-            self.escolher_dataset(dataset)
+        self.wait_for(lambda: self.points(SPACE), "Instance Space scatter did not appear", 60)
+        if self.page.evaluate("document.title") != f"{TITLE} - {dataset}":
+            self.choose_dataset(dataset)
 
-    def escolher_dataset(self, dataset):
-        n = len(pd.read_csv(PASTA_IS / dataset / "coordinates.csv"))
+    def choose_dataset(self, dataset):
+        n = len(pd.read_csv(IS_DIR / dataset / "coordinates.csv"))
         self.page.get_by_label("Dataset", exact=True).select_option(dataset)
-        self.esperar(lambda: self.page.evaluate("document.title") == f"{TITULO} - {dataset}",
-                     f"titulo nao virou {dataset}")
-        self.esperar(lambda: (self.pontos(ESPACO) or {}).get("n") == n,
-                     f"scatter nao passou a ter {n} pontos")
+        self.wait_for(lambda: self.page.evaluate("document.title") == f"{TITLE} - {dataset}",
+                      f"title did not become {dataset}")
+        self.wait_for(lambda: (self.points(SPACE) or {}).get("n") == n,
+                      f"scatter did not get {n} points")
         return n
 
-    def aba(self, nome):
-        self.page.locator(".bk-tab", has_text=nome).first.click()
-        self.esperar(lambda: "bk-active" in (self.page.locator(".bk-tab", has_text=nome).first
-                                             .get_attribute("class") or ""), f"aba {nome} nao ativou")
+    def tab(self, name):
+        self.page.locator(".bk-tab", has_text=name).first.click()
+        self.wait_for(lambda: "bk-active" in (self.page.locator(".bk-tab", has_text=name).first
+                                              .get_attribute("class") or ""), f"tab {name} not active")
         self.page.wait_for_timeout(600)
 
-    def _desenhar(self, cx, cy, r, passos=28):
+    def _draw(self, cx, cy, r, steps=28):
         m = self.page.mouse
         m.move(cx + r, cy)
         m.down()
-        for i in range(1, passos + 1):
-            a = 2 * math.pi * i / passos
+        for i in range(1, steps + 1):
+            a = 2 * math.pi * i / steps
             m.move(cx + r * math.cos(a), cy + r * math.sin(a), steps=2)
         m.up()
 
-    def lasso_com_pontos(self):
-        """Lasso circular em torno do ponto mediano; devolve quantos pontos ele cobre."""
-        tela = self.page.evaluate(TELA_JS, ESPACO)
-        x0, y0, x1, y1 = tela["frame"]
-        pts = np.array(tela["pts"])
+    def lasso_with_points(self):
+        """Circular lasso around the median point; return how many points it covers."""
+        screen = self.page.evaluate(SCREEN_JS, SPACE)
+        x0, y0, x1, y1 = screen["frame"]
+        pts = np.array(screen["pts"])
         cx, cy = np.median(pts[:, 0]), np.median(pts[:, 1])
         cx, cy = min(max(cx, x0 + 60), x1 - 60), min(max(cy, y0 + 60), y1 - 60)
         r = min(90, cx - x0 - 20, x1 - cx - 20, cy - y0 - 20, y1 - cy - 20)
-        dentro = int(np.sum(np.hypot(pts[:, 0] - cx, pts[:, 1] - cy) < r * 0.95))
-        assert dentro > 0, "nenhum ponto sob o lasso planejado"
-        self._desenhar(float(cx), float(cy), float(r))
-        return dentro
+        inside = int(np.sum(np.hypot(pts[:, 0] - cx, pts[:, 1] - cy) < r * 0.95))
+        assert inside > 0, "no point under the planned lasso"
+        self._draw(float(cx), float(cy), float(r))
+        return inside
 
-    def lasso_vazio(self):
-        """Lasso pequeno no ponto do frame mais distante dos dados."""
-        tela = self.page.evaluate(TELA_JS, ESPACO)
-        x0, y0, x1, y1 = tela["frame"]
-        pts = np.array(tela["pts"])
+    def empty_lasso(self):
+        """Small lasso on the frame point farthest from the data."""
+        screen = self.page.evaluate(SCREEN_JS, SPACE)
+        x0, y0, x1, y1 = screen["frame"]
+        pts = np.array(screen["pts"])
         gx, gy = np.meshgrid(np.arange(x0 + 40, x1 - 40, 6), np.arange(y0 + 40, y1 - 40, 6))
-        grade = np.column_stack([gx.ravel(), gy.ravel()])
-        dist = np.min(np.hypot(grade[:, None, 0] - pts[None, :, 0],
-                               grade[:, None, 1] - pts[None, :, 1]), axis=1)
+        grid = np.column_stack([gx.ravel(), gy.ravel()])
+        dist = np.min(np.hypot(grid[:, None, 0] - pts[None, :, 0],
+                               grid[:, None, 1] - pts[None, :, 1]), axis=1)
         i = int(np.argmax(dist))
-        assert dist[i] > 12, "nao ha area vazia dentro do frame"
-        self._desenhar(float(grade[i, 0]), float(grade[i, 1]), float(min(0.45 * dist[i], 20)))
+        assert dist[i] > 12, "no empty area inside the frame"
+        self._draw(float(grid[i, 0]), float(grid[i, 1]), float(min(0.45 * dist[i], 20)))
 
-    def escolher_cor(self, rotulo_select, rotulo_opcao):
-        self.page.get_by_label(rotulo_select, exact=True).select_option(label=rotulo_opcao)
+    def choose_option(self, select_label, option_label):
+        self.page.get_by_label(select_label, exact=True).select_option(label=option_label)
 
-    def texto(self, classe):
-        """Texto do primeiro componente com a css_class `classe` ('' se nao ha)."""
-        loc = self.page.locator(f".{classe}")
-        return loc.first.evaluate(TEXTO_JS) if loc.count() else ""
+    # --------------------------------------------------- New instance space
+    def open_new_space(self):
+        header = self.page.locator(".card-header", has_text="New instance space").first
+        header.click()
+        self.wait_for(lambda: self.page.get_by_role("button", name="Run ISA").is_visible(),
+                      "the New instance space block did not open")
 
-    # ------------------------------------------------- Novo instance space
-    def abrir_novo(self):
-        cab = self.page.locator(".card-header", has_text="Novo instance space").first
-        cab.click()
-        self.esperar(lambda: self.page.get_by_role("button", name="Rodar ISA").is_visible(),
-                     "o bloco Novo instance space nao abriu")
+    def upload(self, css_class, path):
+        self.page.locator(f".{css_class} input[type=file]").set_input_files(str(path))
 
-    def enviar(self, classe, caminho):
-        self.page.locator(f".{classe} input[type=file]").set_input_files(str(caminho))
+    def choose_rule(self, direction, threshold, eps):
+        self.choose_option("Performance direction", direction)
+        self.choose_option("Threshold", threshold)
+        field = self.page.get_by_label("ε (epsilon)", exact=True)
+        field.fill(str(eps))
+        field.press("Tab")
 
-    def escolher_regra(self, direcao, limiar, eps):
-        self.page.get_by_label("Direção do desempenho", exact=True).select_option(label=direcao)
-        self.page.get_by_label("Limiar", exact=True).select_option(label=limiar)
-        campo = self.page.get_by_label("ε (epsilon)", exact=True)
-        campo.fill(str(eps))
-        campo.press("Tab")
+    def name_run(self, name):
+        field = self.page.get_by_label("Run name", exact=True)
+        field.fill(name)
+        field.press("Tab")
 
-    def nomear(self, nome):
-        campo = self.page.get_by_label("Nome da execução", exact=True)
-        campo.fill(nome)
-        campo.press("Tab")
-
-    def rodar(self, nome, abas_durante=("Features",)):
-        """Clica em Rodar ISA, troca de aba durante a execucao (a interface
-        continua usavel) e espera o dataset novo abrir; devolve (pasta,
-        mensagens de progresso vistas)."""
-        botao = self.page.get_by_role("button", name="Rodar ISA")
-        self.esperar(lambda: botao.is_enabled(), "botao Rodar ISA nao habilitou")
-        botao.click()
-        vistos, fim = [], time.time() + TIMEOUT_EXECUCAO
-        pendentes = list(abas_durante)
-        while time.time() < fim:
-            status = self.texto("novo-status")
-            if status and (not vistos or vistos[-1] != status):
-                vistos.append(status)
-            if pendentes and "Rodando" in status:
-                self.aba(pendentes.pop(0))
-            titulo = self.page.evaluate("document.title")
-            if titulo.startswith(f"{TITULO} - {nome}_"):
-                return titulo[len(f"{TITULO} - "):], vistos
-            assert "Falhou" not in status, status
+    def run(self, name, tabs_during=("Features",)):
+        """Click Run ISA, switch tabs while it runs (the interface stays
+        usable) and wait for the new dataset to open; return (folder name,
+        progress messages seen)."""
+        button = self.page.get_by_role("button", name="Run ISA")
+        self.wait_for(lambda: button.is_enabled(), "Run ISA button not enabled")
+        button.click()
+        seen, end = [], time.time() + RUN_TIMEOUT
+        pending = list(tabs_during)
+        while time.time() < end:
+            status = self.text("new-status")
+            if status and (not seen or seen[-1] != status):
+                seen.append(status)
+            if pending and "Running" in status:
+                self.tab(pending.pop(0))
+            title = self.page.evaluate("document.title")
+            if title.startswith(f"{TITLE} - {name}_"):
+                return title[len(f"{TITLE} - "):], seen
+            assert "Failed" not in status, status
             self.page.wait_for_timeout(250)
-        raise AssertionError(f"execucao nao terminou em {TIMEOUT_EXECUCAO} s: {vistos[-3:]}")
+        raise AssertionError(f"run did not finish in {RUN_TIMEOUT} s: {seen[-3:]}")
 
 
 @pytest.fixture
-def tela(navegador, servidor):
-    ctx = navegador.new_context(viewport={"width": 1500, "height": 1000}, accept_downloads=True)
+def screen(browser, server):
+    ctx = browser.new_context(viewport={"width": 1500, "height": 1000}, accept_downloads=True)
     page = ctx.new_page()
-    erros = []
-    page.on("pageerror", lambda e: erros.append(str(e)))
-    yield Tela(page), servidor
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    yield Screen(page), server
     ctx.close()
-    assert not erros, f"erros de JavaScript na pagina: {erros[:3]}"
+    assert not errors, f"JavaScript errors on the page: {errors[:3]}"
 
 
-def _n_distribuicoes(t):
-    """Contagem 'Selecionadas n=K' dos titulos da aba Distributions (None se ausente)."""
-    ks = {int(m.group(1)) for p in t.plots() for m in [re.search(r"Selecionadas n=(\d+)", p["titulo"])] if m}
+def _n_distributions(t):
+    """'Selected n=K' count of the Distributions titles (None if absent)."""
+    ks = {int(m.group(1)) for p in t.plots() for m in [re.search(r"Selected n=(\d+)", p["title"])] if m}
     return ks.pop() if len(ks) == 1 else (None if not ks else ks)
 
 
-def _conferir_abas(t, n):
-    """As abas 1, 2 e 3 mostram a mesma selecao de n pontos (n=0: selecao vazia)."""
-    t.aba("Footprint Performance")
-    t.esperar(lambda: t.n_status() == n, f"Footprint Performance: status nao mostra {n}")
-    t.esperar(lambda: (t.pontos("Footprints") or {}).get("hi") == n,
-              f"Footprint Performance: mapa nao destaca {n} pontos")
-    t.aba("Distributions")
-    t.esperar(lambda: t.n_status() == n, f"Distributions: status nao mostra {n}")
-    t.esperar(lambda: _n_distribuicoes(t) == n, f"Distributions: titulos nao mostram Selecionadas n={n}")
-    t.aba("Data Explorer")
-    t.esperar(lambda: t.n_status() == n, f"Data Explorer: status nao mostra {n}")
-    t.esperar(lambda: (t.pontos(EXPLORER) or {}).get("hi") == n,
-              f"Data Explorer: scatter nao destaca {n} pontos")
+def _check_tabs(t, n):
+    """Footprint Performance, Algorithm Selection, Distributions and Data
+    Explorer show the same selection of n points (n=0: empty selection)."""
+    t.tab("Footprint Performance")
+    t.wait_for(lambda: t.n_status() == n, f"Footprint Performance: status does not show {n}")
+    t.wait_for(lambda: (t.points("Footprints") or {}).get("hi") == n,
+               f"Footprint Performance: map does not highlight {n} points")
+    t.tab("Algorithm Selection")
+    t.wait_for(lambda: t.n_status() == n, f"Algorithm Selection: status does not show {n}")
+    t.wait_for(lambda: (t.points(RECOMMENDED) or {}).get("hi") == n,
+               f"Algorithm Selection: map does not highlight {n} points")
+    t.tab("Distributions")
+    t.wait_for(lambda: t.n_status() == n, f"Distributions: status does not show {n}")
+    t.wait_for(lambda: _n_distributions(t) == n, f"Distributions: titles do not show Selected n={n}")
+    t.tab("Data Explorer")
+    t.wait_for(lambda: t.n_status() == n, f"Data Explorer: status does not show {n}")
+    t.wait_for(lambda: (t.points(EXPLORER) or {}).get("hi") == n,
+               f"Data Explorer: scatter does not highlight {n} points")
 
 
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_lasso_ativo_ao_abrir(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    assert t.plot(ESPACO)["ativo"] == "LassoSelectTool"
-    assert "Sem seleção" in t.status()
-    t.lasso_com_pontos()            # sem clicar em nenhuma ferramenta
-    n = t.esperar(lambda: t.n_status(), "o lasso nao selecionou nada")
+def test_lasso_active_on_open(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    assert t.plot(SPACE)["active"] == "LassoSelectTool"
+    assert "No selection" in t.status()
+    t.lasso_with_points()            # without clicking any tool
+    n = t.wait_for(lambda: t.n_status(), "the lasso selected nothing")
     assert n > 0
-    assert t.pontos(ESPACO)["sel"] == n
+    assert t.points(SPACE)["sel"] == n
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_lasso_aparece_nas_outras_abas(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    t.lasso_com_pontos()
-    n = t.esperar(lambda: t.n_status(), "o lasso nao selecionou nada")
-    assert t.pontos(ESPACO)["sel"] == n
-    assert t.sidebar_selecao() == f"Seleção: {n} instâncias"
-    _conferir_abas(t, n)
-    t.aba("Instance Space")
-    t.esperar(lambda: (t.pontos(ESPACO) or {}).get("sel") == n, "a selecao sumiu da aba 1")
+def test_lasso_shows_in_the_other_tabs(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    t.lasso_with_points()
+    n = t.wait_for(lambda: t.n_status(), "the lasso selected nothing")
+    assert t.points(SPACE)["sel"] == n
+    assert t.sidebar_selection() == f"Selection: {n} instances"
+    _check_tabs(t, n)
+    t.tab("Instance Space")
+    t.wait_for(lambda: (t.points(SPACE) or {}).get("sel") == n, "the selection vanished from tab 0")
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_cor_global_entre_abas_1_e_4(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    categorica, numerica = "melhor algoritmo observado", "n. de algoritmos bons"
-    t.escolher_cor("Cor dos pontos", categorica)
-    t.esperar(lambda: (t.plot(ESPACO) or {}).get("titulo", "").endswith(f"cor: {categorica}"),
-              "aba 1 nao trocou a cor")
-    assert t.pontos(ESPACO)["mapper"] == "CategoricalColorMapper"
-    t.aba("Data Explorer")
-    t.esperar(lambda: t.valor_select("Cor") == categorica, "seletor da aba 4 nao acompanhou")
-    t.esperar(lambda: (t.plot(EXPLORER) or {}).get("titulo", "").endswith(f"cor: {categorica}"),
-              "scatter da aba 4 nao trocou a cor")
-    assert t.pontos(EXPLORER)["mapper"] == "CategoricalColorMapper"
-    # e o caminho inverso
-    t.escolher_cor("Cor", numerica)
-    t.esperar(lambda: (t.plot(EXPLORER) or {}).get("titulo", "").endswith(f"cor: {numerica}"),
-              "aba 4 nao trocou a cor")
-    assert t.pontos(EXPLORER)["mapper"] == "LinearColorMapper"
-    t.aba("Instance Space")
-    t.esperar(lambda: t.valor_select("Cor dos pontos") == numerica, "seletor da aba 1 nao acompanhou")
-    t.esperar(lambda: (t.plot(ESPACO) or {}).get("titulo", "").endswith(f"cor: {numerica}"),
-              "scatter da aba 1 nao trocou a cor")
-    assert t.pontos(ESPACO)["mapper"] == "LinearColorMapper"
+def test_global_color_between_instance_space_and_explorer(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    categorical, numeric = "best observed algorithm", "number of good algorithms"
+    t.choose_option("Point color", categorical)
+    t.wait_for(lambda: (t.plot(SPACE) or {}).get("title", "").endswith(f"color: {categorical}"),
+               "Instance Space did not change color")
+    assert t.points(SPACE)["mapper"] == "CategoricalColorMapper"
+    t.tab("Data Explorer")
+    t.wait_for(lambda: t.select_value("Color") == categorical, "the Data Explorer selector did not follow")
+    t.wait_for(lambda: (t.plot(EXPLORER) or {}).get("title", "").endswith(f"color: {categorical}"),
+               "Data Explorer scatter did not change color")
+    assert t.points(EXPLORER)["mapper"] == "CategoricalColorMapper"
+    # and the other way round
+    t.choose_option("Color", numeric)
+    t.wait_for(lambda: (t.plot(EXPLORER) or {}).get("title", "").endswith(f"color: {numeric}"),
+               "Data Explorer did not change color")
+    assert t.points(EXPLORER)["mapper"] == "LinearColorMapper"
+    t.tab("Instance Space")
+    t.wait_for(lambda: t.select_value("Point color") == numeric, "the tab 0 selector did not follow")
+    t.wait_for(lambda: (t.plot(SPACE) or {}).get("title", "").endswith(f"color: {numeric}"),
+               "Instance Space scatter did not change color")
+    assert t.points(SPACE)["mapper"] == "LinearColorMapper"
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_lasso_em_area_vazia_e_selecao_vazia(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    t.lasso_vazio()
-    t.esperar(lambda: "Seleção vazia" in t.status(), "aba 1 nao mostrou seleção vazia")
-    assert t.sidebar_selecao() == "Seleção: vazia (0 instâncias)"
-    assert t.pontos(ESPACO)["sel"] == 0
-    _conferir_abas(t, 0)
-    for aba in ("Footprint Performance", "Distributions", "Data Explorer"):
-        t.aba(aba)
-        assert "Seleção vazia" in t.status(), aba
+def test_empty_lasso_gives_an_empty_selection(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    t.empty_lasso()
+    t.wait_for(lambda: "Empty selection" in t.status(), "tab 0 did not show an empty selection")
+    assert t.sidebar_selection() == "Selection: empty (0 instances)"
+    assert t.points(SPACE)["sel"] == 0
+    _check_tabs(t, 0)
+    for tab in ("Footprint Performance", "Algorithm Selection", "Distributions", "Data Explorer"):
+        t.tab(tab)
+        assert "Empty selection" in t.status(), tab
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_trocar_dataset_zera_selecao_e_atualiza_tudo(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    t.lasso_com_pontos()
-    t.esperar(lambda: t.n_status(), "o lasso nao selecionou nada")
-    outro = DATASETS[(DATASETS.index(dataset) + 1) % len(DATASETS)]
-    n = t.escolher_dataset(outro)
-    assert t.page.evaluate("document.title") == f"{TITULO} - {outro}"
-    assert t.page.get_by_text(f"— {outro}").count() == 1                  # cabecalho
-    assert t.page.get_by_text(f"Instâncias: {n}").count() == 1           # sidebar
-    assert "Sem seleção" in t.status()
-    assert t.sidebar_selecao() == "Seleção: nenhuma"
-    assert t.pontos(ESPACO)["sel"] == 0
-    t.aba("Footprint Performance")
-    t.esperar(lambda: (t.pontos("Footprints") or {}).get("n") == n, "mapa de footprints nao atualizou")
-    assert "Sem seleção" in t.status()
-    t.aba("Distributions")
-    t.esperar(lambda: any(f"Todas n={n}" in p["titulo"] for p in t.plots()), "distribuicoes nao atualizaram")
-    assert _n_distribuicoes(t) is None
-    t.aba("Data Explorer")
-    t.esperar(lambda: (t.pontos(EXPLORER) or {}).get("n") == n, "Data Explorer nao atualizou")
-    assert "Sem seleção" in t.status()
+def test_switching_dataset_resets_selection_and_updates_everything(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    t.lasso_with_points()
+    t.wait_for(lambda: t.n_status(), "the lasso selected nothing")
+    other = DATASETS[(DATASETS.index(dataset) + 1) % len(DATASETS)]
+    n = t.choose_dataset(other)
+    assert t.page.evaluate("document.title") == f"{TITLE} - {other}"
+    assert t.page.get_by_text(f"— {other}").count() == 1                  # header
+    assert t.page.get_by_text(f"Instances: {n}").count() == 1            # sidebar
+    assert "No selection" in t.status()
+    assert t.sidebar_selection() == "Selection: none"
+    assert t.points(SPACE)["sel"] == 0
+    t.tab("Footprint Performance")
+    t.wait_for(lambda: (t.points("Footprints") or {}).get("n") == n, "footprint map did not update")
+    assert "No selection" in t.status()
+    t.tab("Algorithm Selection")
+    t.wait_for(lambda: (t.points(RECOMMENDED) or {}).get("n") == n, "Algorithm Selection did not update")
+    t.tab("Distributions")
+    t.wait_for(lambda: any(f"All n={n}" in p["title"] for p in t.plots()), "distributions did not update")
+    assert _n_distributions(t) is None
+    t.tab("Data Explorer")
+    t.wait_for(lambda: (t.points(EXPLORER) or {}).get("n") == n, "Data Explorer did not update")
+    assert "No selection" in t.status()
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_usar_filtro_como_selecao(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    coords = pd.read_csv(PASTA_IS / dataset / "coordinates.csv")
+def test_use_filter_as_selection(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    coords = pd.read_csv(IS_DIR / dataset / "coordinates.csv")
     k = int((coords["z_1"] > 0).sum())
-    t.aba("Data Explorer")
-    campo = t.page.get_by_label("Filtro (pandas query)", exact=True)
-    campo.fill("z_1 > 0")
-    campo.press("Enter")
-    t.esperar(lambda: t.page.get_by_text(f"{k} de {len(coords)} linhas").count() == 1,
-              f"filtro nao mostrou {k} linhas")
-    assert "Sem seleção" in t.status()                  # o filtro sozinho e local
-    botao = t.page.get_by_role("button", name="Usar filtro como seleção")
-    t.esperar(lambda: botao.is_enabled(), "botao nao habilitou")
-    botao.click()
-    t.esperar(lambda: t.n_status() == k, f"Data Explorer: status nao mostra {k}")
-    assert t.sidebar_selecao() == f"Seleção: {k} instâncias"
-    t.esperar(lambda: (t.pontos(EXPLORER) or {}).get("hi") == k, "Data Explorer nao destacou")
-    t.aba("Instance Space")
-    t.esperar(lambda: t.n_status() == k, f"Instance Space: status nao mostra {k}")
-    t.esperar(lambda: (t.pontos(ESPACO) or {}).get("sel") == k, "Instance Space nao destacou")
-    t.aba("Footprint Performance")
-    t.esperar(lambda: (t.pontos("Footprints") or {}).get("hi") == k, "Footprint Performance nao destacou")
-    t.aba("Distributions")
-    t.esperar(lambda: _n_distribuicoes(t) == k, "Distributions nao mostrou a selecao")
+    t.tab("Data Explorer")
+    field = t.page.get_by_label("Filter (pandas query)", exact=True)
+    field.fill("z_1 > 0")
+    field.press("Enter")
+    t.wait_for(lambda: t.page.get_by_text(f"{k} of {len(coords)} rows").count() == 1,
+               f"the filter did not show {k} rows")
+    assert "No selection" in t.status()                  # the filter alone is local
+    button = t.page.get_by_role("button", name="Use filter as selection")
+    t.wait_for(lambda: button.is_enabled(), "button not enabled")
+    button.click()
+    t.wait_for(lambda: t.n_status() == k, f"Data Explorer: status does not show {k}")
+    assert t.sidebar_selection() == f"Selection: {k} instances"
+    t.wait_for(lambda: (t.points(EXPLORER) or {}).get("hi") == k, "Data Explorer did not highlight")
+    t.tab("Instance Space")
+    t.wait_for(lambda: t.n_status() == k, f"Instance Space: status does not show {k}")
+    t.wait_for(lambda: (t.points(SPACE) or {}).get("sel") == k, "Instance Space did not highlight")
+    t.tab("Footprint Performance")
+    t.wait_for(lambda: (t.points("Footprints") or {}).get("hi") == k, "Footprint Performance did not highlight")
+    t.tab("Distributions")
+    t.wait_for(lambda: _n_distributions(t) == k, "Distributions did not show the selection")
 
 
-def test_agrupar_por_class_no_iris_produz_3_grupos(tela):
-    t, url = tela
-    t.abrir(url, "iris")
-    t.aba("Distributions")
-    t.page.get_by_label("Agrupar por", exact=True).select_option(label="class")
-    plot = t.esperar(lambda: next((p for p in t.plots() if "por class" in p["titulo"]
-                                   and p["fatores"]), None), "distribuicao por class nao apareceu")
-    classes = sorted(pd.read_csv(RAIZ / "resultados" / "table_iris.csv")["class"].unique())
-    assert len(plot["fatores"]) == 3                      # 3 grupos -> violino por padrao
-    assert [f.split(" (n=")[0] for f in plot["fatores"]] == classes
-    assert all("(n=50)" in f for f in plot["fatores"])
+def test_group_by_class_on_iris_gives_3_groups(screen):
+    t, url = screen
+    t.open(url, "iris")
+    t.tab("Distributions")
+    t.choose_option("Group by", "class")
+    plot = t.wait_for(lambda: next((p for p in t.plots() if "by class" in p["title"]
+                                    and p["factors"]), None), "distribution by class did not appear")
+    classes = sorted(pd.read_csv(ROOT / "resultados" / "table_iris.csv")["class"].unique())
+    assert len(plot["factors"]) == 3                      # 3 groups -> violin by default
+    assert [f.split(" (n=")[0] for f in plot["factors"]] == classes
+    assert all("(n=50)" in f for f in plot["factors"])
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_csv_exportado_da_selecao_tem_as_linhas_selecionadas(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    t.lasso_com_pontos()
-    n = t.esperar(lambda: t.n_status(), "o lasso nao selecionou nada")
-    rotulos = t.esperar(lambda: (r := t.page.evaluate(SELECIONADAS_JS, ESPACO)) and len(r) == n and r,
-                        "rotulos selecionados nao conferem com o status")
-    botao = t.page.get_by_role("button", name=f"Exportar seleção ({n})")
-    t.esperar(lambda: botao.is_enabled(), "botao de exportar a selecao nao habilitou")
+def test_exported_selection_csv_has_the_selected_rows(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    t.lasso_with_points()
+    n = t.wait_for(lambda: t.n_status(), "the lasso selected nothing")
+    labels = t.wait_for(lambda: (r := t.page.evaluate(SELECTED_JS, SPACE)) and len(r) == n and r,
+                        "selected labels do not match the status")
+    button = t.page.get_by_role("button", name=f"Export selection ({n})")
+    t.wait_for(lambda: button.is_enabled(), "export selection button not enabled")
     with t.page.expect_download() as info:
-        botao.click()
+        button.click()
     csv = pd.read_csv(info.value.path(), dtype={"instances": str})
-    assert info.value.suggested_filename == f"{dataset}_selecao.csv"
-    assert len(csv) == n and sorted(csv["instances"]) == sorted(rotulos)
-    meta = pd.read_csv(PASTA_IS / dataset / "metadata.csv", nrows=1)
+    assert info.value.suggested_filename == f"{dataset}_selection.csv"
+    assert len(csv) == n and sorted(csv["instances"]) == sorted(labels)
+    meta = pd.read_csv(IS_DIR / dataset / "metadata.csv", nrows=1)
     features = [c for c in meta.columns if c.startswith("feature_")]
     algos = [c for c in meta.columns if c.startswith("algo_")]
     for col in ["instances", "class", "ih", "n_wrong", *features, *algos, "z_1", "z_2",
-                "NumGoodAlgos", "IsBetaEasy", "best_algo", "best_algo_svm"]:
+                "NumGoodAlgos", "IsBetaEasy", "best_algo", "best_algo_or_tie", "n_tied_best",
+                "best_algo_svm"]:
         assert col in csv.columns, col
 
 
-def test_aba_features_do_iris_lista_todas_as_features_e_as_degeneradas(tela):
-    t, url = tela
-    t.abrir(url, "iris")
-    t.aba("Features")
-    dados = t.esperar(lambda: t.page.evaluate(TABELA_JS, "feature"), "tabela de features nao apareceu")
-    tabela = pd.read_csv(RAIZ / "resultados" / "table_iris.csv", nrows=1)
-    recebidas = [c[len("feature_"):] for c in tabela.columns if c.startswith("feature_")]
-    assert sorted(dados["feature"]) == sorted(recebidas) and len(dados["feature"]) == 19
-    degeneradas = {f for f, st in zip(dados["feature"], dados["status"]) if st == "dropped_degenerate"}
-    assert degeneradas == {"kDN", "MV", "CB", "N1", "Harmfulness"}
-    assert t.page.get_by_text("19 features recebidas").count() == 1
-    assert any(p["titulo"].startswith("rho de Pearson") for p in t.plots())      # heatmap
-    assert any("k usado = 6" in p["titulo"] for p in t.plots())                  # silhueta
+def test_features_tab_of_iris_lists_every_feature_and_the_degenerate_ones(screen):
+    t, url = screen
+    t.open(url, "iris")
+    t.tab("Features")
+    data = t.wait_for(lambda: t.page.evaluate(TABLE_JS, "feature"), "features table did not appear")
+    table = pd.read_csv(ROOT / "resultados" / "table_iris.csv", nrows=1)
+    received = [c[len("feature_"):] for c in table.columns if c.startswith("feature_")]
+    assert sorted(data["feature"]) == sorted(received) and len(data["feature"]) == 19
+    degenerate = {f for f, st in zip(data["feature"], data["status"]) if st == "dropped_degenerate"}
+    assert degenerate == {"kDN", "MV", "CB", "N1", "Harmfulness"}
+    assert t.page.get_by_text("19 features received").count() == 1
+    assert any(p["title"].startswith("Pearson rho") for p in t.plots())      # heatmap
+    assert any("k used = 6" in p["title"] for p in t.plots())                # silhouette
 
 
 # --------------------------------------------------------------------------- #
-# Novo instance space (upload, validacao, execucao em subprocesso)
+# ties for the best observed value (Task 2)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_best_observed_color_marks_ties_instead_of_a_random_pick(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    raw = pd.read_csv(IS_DIR / dataset / "algorithm_raw.csv", dtype={"Row": str}).set_index("Row")
+    n_tied = (raw.to_numpy() == raw.to_numpy().max(axis=1, keepdims=True)).sum(axis=1)
+    t.choose_option("Point color", "best observed algorithm")
+    t.wait_for(lambda: (t.plot(SPACE) or {}).get("title", "").endswith("color: best observed algorithm"),
+               "color did not change")
+    values = t.wait_for(lambda: t.column(SPACE, "color_value"), "color column not found")
+    assert values.count("tie") == TIES[dataset] == int((n_tied > 1).sum())
+    assert set(values) - {"tie"} <= set(raw.columns)
+    t.choose_option("Point color", "algorithms tied for the best")
+    t.wait_for(lambda: (t.plot(SPACE) or {}).get("title", "").endswith("color: algorithms tied for the best"),
+               "color did not change")
+    assert t.points(SPACE)["mapper"] == "LinearColorMapper"
+    values = t.wait_for(lambda: t.column(SPACE, "color_value"), "color column not found")
+    rows = t.column(SPACE, "Row")
+    got = pd.Series([float(v) for v in values], index=rows)
+    assert (got.reindex(raw.index).to_numpy() == n_tied).all()
+
+
+def test_algorithm_selection_good_bad_categories_follow_algorithm_bin(screen):
+    t, url = screen
+    t.open(url, "iris")
+    folder = IS_DIR / "iris"
+    sel = pd.read_csv(folder / "pythia_selection.csv", dtype={"Row": str}).set_index("Row")["selection0"]
+    good = pd.read_csv(folder / "algorithm_bin.csv", dtype={"Row": str}).set_index("Row")
+    rec_good = [bool(good.loc[r, a]) if isinstance(a, str) else None for r, a in sel.items()]
+    expected = {"recommended good": rec_good.count(True), "recommended bad": rec_good.count(False),
+                "no recommendation": rec_good.count(None)}
+    t.tab("Algorithm Selection")
+    t.choose_option("Color by", "recommended good / bad")
+    title = "Recommended algorithm (selection0): good or bad"
+    t.wait_for(lambda: t.plot(title), "good/bad map did not appear")
+    values = t.wait_for(lambda: t.column(title, "color_value"), "color column not found")
+    got = pd.Series([v.rsplit(" (", 1)[0] for v in values]).value_counts().to_dict()
+    assert got == {k: v for k, v in expected.items() if v}
+    for v in set(values):                                 # the legend count matches
+        name, count = v.rsplit(" (", 1)
+        assert int(count.rstrip(")")) == expected[name]
+    summary = t.page.get_by_text(re.compile(r"The recommended algorithm is good")).first.inner_text()
+    assert f"good for the instance in {expected['recommended good']} of 150" in summary
+    assert f"Ties for the best observed value: {TIES['iris']} instances" in summary
+
+
+# --------------------------------------------------------------------------- #
+# New instance space (upload, validation, engine run in a subprocess)
 # --------------------------------------------------------------------------- #
 @pytest.fixture(scope="session")
-def metadata_exemplo(request):
-    """metadata.csv de exemplo do repositorio do instancespace (tag v0.3.0),
-    baixado uma vez para o cache do pytest (licenca nao comercial: nao vai
-    para o repositorio)."""
-    destino = request.config.cache.mkdir("instancespace_v0.3.0") / "metadata.csv"
-    if not destino.is_file():
+def example_metadata(request):
+    """Example metadata.csv of the instancespace repository (tag v0.3.0),
+    downloaded once to the pytest cache (non-commercial license: it does not
+    go into this repository)."""
+    target = request.config.cache.mkdir("instancespace_v0.3.0") / "metadata.csv"
+    if not target.is_file():
         try:
-            with urllib.request.urlopen(URL_EXEMPLO, timeout=30) as resp:
-                destino.write_bytes(resp.read())
+            with urllib.request.urlopen(EXAMPLE_URL, timeout=30) as resp:
+                target.write_bytes(resp.read())
         except OSError as exc:
-            pytest.skip(f"sem acesso ao metadata de exemplo ({exc})")
-    return destino
+            pytest.skip(f"no access to the example metadata ({exc})")
+    return target
 
 
-def _grupos_do_seletor(t):
+def _selector_groups(t):
     return t.page.get_by_label("Dataset", exact=True).evaluate(
         "e => Object.fromEntries([...e.querySelectorAll('optgroup')].map("
         "g => [g.label, [...g.querySelectorAll('option')].map(o => o.text)]))")
 
 
-def _conferir_todas_as_abas(t, n):
-    """Abre as seis abas do dataset ativo; o scatter tem n pontos e nenhuma
-    aba mostra traceback."""
-    t.aba("Instance Space")
-    t.esperar(lambda: (t.pontos(ESPACO) or {}).get("n") == n, f"scatter nao tem {n} pontos")
-    t.aba("Footprint Performance")
-    t.esperar(lambda: (t.pontos("Footprints") or {}).get("n") == n, "mapa de footprints")
-    t.aba("Algorithm Selection")
-    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("n") == n,
-              "mapa da Algorithm Selection")
-    t.aba("Distributions")
-    t.esperar(lambda: len(t.plots()) >= 1, "Distributions sem graficos")
-    t.aba("Features")
-    t.esperar(lambda: t.page.get_by_text(re.compile(r"\d+ features recebidas")).count() == 1,
-              "Features sem resumo")
-    t.aba("Data Explorer")
-    t.esperar(lambda: (t.pontos(EXPLORER) or {}).get("n") == n, "Data Explorer")
+def _check_all_tabs(t, n):
+    """Open the six tabs of the active dataset; the scatters have n points and
+    no tab shows a traceback."""
+    t.tab("Instance Space")
+    t.wait_for(lambda: (t.points(SPACE) or {}).get("n") == n, f"scatter does not have {n} points")
+    t.tab("Footprint Performance")
+    t.wait_for(lambda: (t.points("Footprints") or {}).get("n") == n, "footprint map")
+    t.tab("Algorithm Selection")
+    t.wait_for(lambda: (t.points(RECOMMENDED) or {}).get("n") == n, "Algorithm Selection map")
+    t.tab("Distributions")
+    t.wait_for(lambda: len(t.plots()) >= 1, "Distributions without plots")
+    t.tab("Features")
+    t.wait_for(lambda: t.page.get_by_text(re.compile(r"\d+ features received")).count() == 1,
+               "Features without summary")
+    t.tab("Data Explorer")
+    t.wait_for(lambda: (t.points(EXPLORER) or {}).get("n") == n, "Data Explorer")
     assert t.page.get_by_text("Traceback").count() == 0
 
 
-def test_upload_quebrado_mostra_erro_sem_traceback(tela, tmp_path):
-    t, url = tela
-    t.abrir(url, "iris")
-    t.abrir_novo()
-    quebrado = tmp_path / "quebrado.csv"
-    quebrado.write_text("instances,feature_a,feature_b,algo_x,algo_y\n1,1,2,0.1,0.2\n1,x,4,0.5,0.6\n")
-    t.enviar("novo-metadata", quebrado)
-    texto = t.esperar(lambda: t.texto("novo-erros"), "o erro de validacao nao apareceu")
-    assert "pelo menos 3 colunas feature_*" in texto and "o arquivo tem 2" in texto
+def test_broken_upload_shows_an_error_without_traceback(screen, tmp_path):
+    t, url = screen
+    t.open(url, "iris")
+    t.open_new_space()
+    broken = tmp_path / "broken.csv"
+    broken.write_text("instances,feature_a,feature_b,algo_x,algo_y\n1,1,2,0.1,0.2\n1,x,4,0.5,0.6\n")
+    t.upload("new-metadata", broken)
+    text = t.wait_for(lambda: t.text("new-errors"), "the validation error did not appear")
+    assert "At least 3 feature_* columns" in text and "the file has 2" in text
     assert t.page.get_by_text("Traceback").count() == 0
-    assert t.page.get_by_role("button", name="Rodar ISA").is_disabled()
+    assert t.page.get_by_role("button", name="Run ISA").is_disabled()
 
 
-def test_upload_do_exemplo_do_instancespace_roda_e_abre_as_abas(tela, pasta_runs, metadata_exemplo):
-    """Metadata do repositorio do instancespace, sem anotacoes: escolher a
-    direcao, rodar, e abrir todas as abas do resultado."""
-    t, url = tela
-    t.abrir(url, "iris")
-    t.abrir_novo()
-    t.enviar("novo-metadata", metadata_exemplo)
-    t.esperar(lambda: t.page.get_by_text(re.compile(r"212 instâncias, 10 features, 10 algoritmos"))
-              .count() == 1, "resumo do metadata nao apareceu")
-    botao = t.page.get_by_role("button", name="Rodar ISA")
-    assert botao.is_disabled()                       # direcao ainda nao escolhida
-    assert t.page.get_by_text(re.compile("falta escolher: a direção do desempenho")).count() == 1
-    t.escolher_regra("menor é melhor", "absoluto", 0.2)          # options.json do exemplo
-    t.esperar(lambda: t.page.get_by_text("Prévia (regra do PRELIM):", exact=False).count() >= 1,
-              "previa da fracao de boas nao apareceu")
-    t.nomear("exemplo_e2e")
-    nome, vistos = t.rodar("exemplo_e2e")
-    assert any(re.search(r"estágio \d de 7", v) for v in vistos), vistos
-    t.esperar(lambda: "Concluído" in t.texto("novo-status"), "status nao mostra Concluído")
-    pasta = pasta_runs / nome
-    assert (pasta / "run_info.json").is_file() and (pasta / "execucao.log").is_file()
-    assert (pasta / "entrada" / "metadata.csv").read_bytes() == metadata_exemplo.read_bytes()
-    opcoes = json.loads((pasta / "run_options.json").read_text())
-    assert opcoes["perf"] == {**opcoes["perf"], "max_perf": False, "abs_perf": True, "epsilon": 0.2}
-    assert opcoes["trace"]["use_sim"] is False and opcoes["sifted"]["k"] == 6
-    grupos = _grupos_do_seletor(t)
-    assert nome in grupos["runs (execuções pela interface)"]
-    assert "iris" in grupos["resultados/is"] and nome not in grupos["resultados/is"]
-    n = len(pd.read_csv(pasta / "coordinates.csv"))
-    _conferir_todas_as_abas(t, n)
+def test_upload_of_the_instancespace_example_runs_and_opens_the_tabs(screen, runs_dir, example_metadata):
+    """Metadata of the instancespace repository, without annotations: choose
+    the direction, run, and open every tab of the result."""
+    t, url = screen
+    t.open(url, "iris")
+    t.open_new_space()
+    t.upload("new-metadata", example_metadata)
+    t.wait_for(lambda: t.page.get_by_text(re.compile(r"212 instances, 10 features, 10 algorithms"))
+               .count() == 1, "metadata summary did not appear")
+    button = t.page.get_by_role("button", name="Run ISA")
+    assert button.is_disabled()                       # direction not chosen yet
+    assert t.page.get_by_text(re.compile("still missing: the performance direction")).count() == 1
+    t.choose_rule("lower is better", "absolute", 0.2)          # the example's options.json
+    t.wait_for(lambda: t.page.get_by_text("Preview (PRELIM rule):", exact=False).count() >= 1,
+               "good-fraction preview did not appear")
+    t.name_run("example_e2e")
+    name, seen = t.run("example_e2e")
+    assert any(re.search(r"stage \d of 7", s) for s in seen), seen
+    t.wait_for(lambda: "Done" in t.text("new-status"), "status does not show Done")
+    folder = runs_dir / name
+    assert (folder / "run_info.json").is_file() and (folder / "run.log").is_file()
+    assert (folder / "input" / "metadata.csv").read_bytes() == example_metadata.read_bytes()
+    options = json.loads((folder / "run_options.json").read_text())
+    assert options["perf"] == {**options["perf"], "max_perf": False, "abs_perf": True, "epsilon": 0.2}
+    assert options["trace"]["use_sim"] is False and options["sifted"]["k"] == 6
+    groups = _selector_groups(t)
+    assert name in groups["runs (launched from this interface)"]
+    assert "iris" in groups["resultados/is"] and name not in groups["resultados/is"]
+    n = len(pd.read_csv(folder / "coordinates.csv"))
+    _check_all_tabs(t, n)
 
 
-def test_ciclo_exportar_selecao_e_subir_como_metadata(tela, pasta_runs, tmp_path):
-    """Exporta a selecao (filtro z_1 < 0 do diabetes), sobe o CSV exportado
-    como metadata novo, roda, e confere que a contagem de instancias bate."""
-    t, url = tela
-    t.abrir(url, "diabetes")
-    t.aba("Data Explorer")
-    t.page.get_by_label("Filtro (pandas query)", exact=True).fill("z_1 < 0")
-    t.page.get_by_label("Filtro (pandas query)", exact=True).press("Enter")
-    usar = t.page.get_by_role("button", name="Usar filtro como seleção")
-    t.esperar(lambda: usar.is_enabled(), "botao usar filtro nao habilitou")
-    usar.click()
-    n = t.esperar(lambda: t.n_status(), "o filtro nao virou selecao")
-    esperado = int((pd.read_csv(PASTA_IS / "diabetes" / "coordinates.csv")["z_1"] < 0).sum())
-    assert n == esperado
-    botao = t.page.get_by_role("button", name=f"Exportar seleção ({n})")
-    t.esperar(lambda: botao.is_enabled(), "botao de exportar a selecao nao habilitou")
+def test_cycle_export_selection_and_upload_it_as_metadata(screen, runs_dir, tmp_path):
+    """Export the selection (filter z_1 < 0 on diabetes), upload the exported
+    CSV as new metadata, run, and check that the instance count matches."""
+    t, url = screen
+    t.open(url, "diabetes")
+    t.tab("Data Explorer")
+    t.page.get_by_label("Filter (pandas query)", exact=True).fill("z_1 < 0")
+    t.page.get_by_label("Filter (pandas query)", exact=True).press("Enter")
+    use = t.page.get_by_role("button", name="Use filter as selection")
+    t.wait_for(lambda: use.is_enabled(), "use filter button not enabled")
+    use.click()
+    n = t.wait_for(lambda: t.n_status(), "the filter did not become a selection")
+    expected = int((pd.read_csv(IS_DIR / "diabetes" / "coordinates.csv")["z_1"] < 0).sum())
+    assert n == expected
+    button = t.page.get_by_role("button", name=f"Export selection ({n})")
+    t.wait_for(lambda: button.is_enabled(), "export selection button not enabled")
     with t.page.expect_download() as info:
-        botao.click()
-    exportado = tmp_path / "diabetes_selecao.csv"
-    info.value.save_as(exportado)
-    assert len(pd.read_csv(exportado)) == n
+        button.click()
+    exported = tmp_path / "diabetes_selection.csv"
+    info.value.save_as(exported)
+    assert len(pd.read_csv(exported)) == n
 
-    t.abrir_novo()
-    t.enviar("novo-metadata", exportado)
-    t.esperar(lambda: t.page.get_by_text(re.compile(rf"{n} instâncias, ")).count() == 1,
-              "resumo do metadata exportado nao apareceu")
-    t.escolher_regra("maior é melhor", "absoluto", 0.5)
-    t.nomear("ciclo_e2e")
-    nome, _ = t.rodar("ciclo_e2e")
-    pasta = pasta_runs / nome
-    assert len(pd.read_csv(pasta / "coordinates.csv")) == n
-    assert json.loads((pasta / "run_info.json").read_text())["n_instancias"] == n
-    t.esperar(lambda: t.page.get_by_text(re.compile(rf"Instâncias: {n}\b")).count() >= 1,
-              f"sidebar nao mostra {n} instancias")
-    t.aba("Instance Space")
-    t.esperar(lambda: (t.pontos(ESPACO) or {}).get("n") == n, f"scatter nao tem {n} pontos")
-
-
-def test_direcao_invertida_dispara_aviso(tela):
-    """iris com 'menor é melhor' (o certo e maior): as frações de boas caem
-    abaixo de 5% e o aviso aparece, sem bloquear o botao."""
-    t, url = tela
-    t.abrir(url, "iris")
-    t.abrir_novo()
-    t.enviar("novo-metadata", PASTA_IS / "iris" / "metadata.csv")
-    t.esperar(lambda: t.page.get_by_text(re.compile(r"150 instâncias, ")).count() == 1,
-              "resumo do iris nao apareceu")
-    t.escolher_regra("menor é melhor", "absoluto", 0.5)
-    texto = t.esperar(lambda: t.texto("novo-aviso-direcao"), "aviso de direcao nao apareceu")
-    assert "Confira a direção" in texto and "knn" in texto and "menos de 5,0%" in texto
-    assert t.page.get_by_role("button", name="Rodar ISA").is_enabled()
+    t.open_new_space()
+    t.upload("new-metadata", exported)
+    t.wait_for(lambda: t.page.get_by_text(re.compile(rf"{n} instances, ")).count() == 1,
+               "summary of the exported metadata did not appear")
+    t.choose_rule("higher is better", "absolute", 0.5)
+    t.name_run("cycle_e2e")
+    name, _ = t.run("cycle_e2e")
+    folder = runs_dir / name
+    assert len(pd.read_csv(folder / "coordinates.csv")) == n
+    assert json.loads((folder / "run_info.json").read_text())["n_instances"] == n
+    t.wait_for(lambda: t.page.get_by_text(re.compile(rf"Instances: {n}\b")).count() >= 1,
+               f"sidebar does not show {n} instances")
+    t.tab("Instance Space")
+    t.wait_for(lambda: (t.points(SPACE) or {}).get("n") == n, f"scatter does not have {n} points")
 
 
-def test_algorithm_selection_avisa_seletor_trivial_no_iris(tela):
-    t, url = tela
-    t.abrir(url, "iris")
-    t.aba("Algorithm Selection")
-    texto = t.esperar(lambda: t.texto("as-trivial"), "aviso de seletor trivial nao apareceu no iris")
-    assert "Seletor quase trivial" in texto and "logreg" in texto and "143 de 150" in texto
-    assert t.page.get_by_text(re.compile(r"pr0_sub.*fora da amostra")).count() >= 1
-    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("n") == 150, "mapa do iris")
-    assert len(t.page.locator(".as-confusao").all()) == 6
-    t.aba("Instance Space")               # escolher_dataset espera o scatter da aba 0
-    t.escolher_dataset("hill-valley")     # logreg em 853 de 1212 (70%): sem aviso
-    t.aba("Algorithm Selection")
-    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("n") == 1212,
-              "mapa do hill-valley")
+def test_flipping_the_direction_flips_the_ranking(screen):
+    """Task 1: the direction is not guessed; the block shows its consequence.
+    Flipping the direction reverses the mean ranking shown before the Run
+    button (best and worst swap). The degenerate-ε warning is about the
+    threshold: on iris with absolute ε = 0.5 it fires in both directions."""
+    t, url = screen
+    t.open(url, "iris")
+    t.open_new_space()
+    t.upload("new-metadata", IS_DIR / "iris" / "metadata.csv")
+    t.wait_for(lambda: t.page.get_by_text(re.compile(r"150 instances, ")).count() == 1,
+               "iris summary did not appear")
+    assert t.table_rows("new-ranking") == []               # no direction yet: no ranking
+    t.choose_option("Performance direction", "higher is better")
+    higher = t.wait_for(lambda: t.table_rows("new-ranking"), "ranking did not appear")
+    text = t.text("new-ranking")
+    assert UPSIDE_DOWN in " ".join(text.split())
+    order = [row[1] for row in higher]
+    assert f"Best under this direction: {order[0]}" in " ".join(text.split())
+    means = pd.read_csv(IS_DIR / "iris" / "metadata.csv").filter(like="algo_").mean()
+    assert order[0] == means.idxmax().removeprefix("algo_")
+    t.choose_option("Performance direction", "lower is better")
+    lower = t.wait_for(lambda: (r := t.table_rows("new-ranking")) and [x[1] for x in r] != order and r,
+                       "ranking did not change")
+    assert [row[1] for row in lower] == order[::-1]
+    assert f"Best under this direction: {order[-1]}" in " ".join(t.text("new-ranking").split())
+    t.choose_option("Threshold", "absolute")
+    field = t.page.get_by_label("ε (epsilon)", exact=True)
+    field.fill("0.5")
+    field.press("Tab")
+    for direction in ("lower is better", "higher is better"):
+        t.choose_option("Performance direction", direction)
+        warning = t.wait_for(lambda: t.text("new-degenerate-eps"), f"no ε warning with {direction}")
+        assert "Degenerate ε threshold" in warning and "says nothing about the direction" in warning
+    assert t.page.get_by_role("button", name="Run ISA").is_enabled()
+
+
+def test_algorithm_selection_warns_about_a_trivial_selector_on_iris(screen):
+    t, url = screen
+    t.open(url, "iris")
+    t.tab("Algorithm Selection")
+    text = t.wait_for(lambda: t.text("as-trivial"), "trivial selector warning did not appear on iris")
+    assert "Nearly trivial selector" in text and "logreg" in text and "143 of 150" in text
+    assert t.page.get_by_text(re.compile(r"pr0_sub.*out of sample")).count() >= 1
+    t.wait_for(lambda: (t.points(RECOMMENDED) or {}).get("n") == 150, "iris map")
+    assert len(t.page.locator(".as-confusion").all()) == 6
+    t.tab("Instance Space")               # choose_dataset waits for the tab 0 scatter
+    t.choose_dataset("hill-valley")       # logreg in 853 of 1212 (70%): no warning
+    t.tab("Algorithm Selection")
+    t.wait_for(lambda: (t.points(RECOMMENDED) or {}).get("n") == 1212, "hill-valley map")
     assert t.page.locator(".as-trivial").count() == 0
-
-
-@pytest.mark.parametrize("dataset", DATASETS)
-def test_algorithm_selection_destaca_a_selecao(tela, dataset):
-    t, url = tela
-    t.abrir(url, dataset)
-    t.lasso_com_pontos()
-    n = t.esperar(lambda: t.n_status(), "o lasso nao selecionou nada")
-    t.aba("Algorithm Selection")
-    t.esperar(lambda: t.n_status() == n, f"Algorithm Selection: status nao mostra {n}")
-    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("hi") == n,
-              f"Algorithm Selection: mapa nao destaca {n} pontos")

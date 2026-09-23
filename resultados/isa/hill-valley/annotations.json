@@ -1,6 +1,6 @@
 {
   "row_original": "identifier",
-  "class": "categorica",
-  "ih": "numerica",
-  "n_wrong": "numerica_inteira"
+  "class": "categorical",
+  "ih": "numeric",
+  "n_wrong": "integer"
 }

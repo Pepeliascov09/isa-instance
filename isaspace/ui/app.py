@@ -1,65 +1,68 @@
-"""Interface do espaco de instancias (Panel 1.x) sobre isaspace.ui.loader_is.
+"""Instance space user interface (Panel 1.x) on top of isaspace.ui.loader_is.
 
-Seis abas sobre um estado global unico (EstadoGlobal):
+Six tabs over a single global state (GlobalState):
 
-- "Instance Space" (0): um scatter z_1 x z_2 largo, com o lasso ativo ao abrir,
-  colorido pela variavel global de cor; sobreposicoes opcionais de footprints
-  (algoritmo e tipo), da fronteira do CLOISTER e da footprint hard.
-- "Footprint Performance" (1): mapa das footprints com a selecao destacada e a
-  tabela footprint_performance.csv com o status (ok / suspeita / vazia).
-- "Algorithm Selection" (2): o que o PYTHIA e o CLOISTER produziram: mapa
-  colorido pelo recomendado (selection0, "nenhum" como categoria), pela
-  concordancia com o melhor observado ou pelo pr0_sub (P(ruim) fora da
-  amostra) de um algoritmo, com a fronteira do CLOISTER e a selecao
-  destacada; svm_table; matrizes de confusao da validacao cruzada; aviso de
-  seletor quase trivial (um algoritmo em mais de SELETOR_TRIVIAL das instancias).
-- "Distributions" (3): distribuicao de variaveis numericas agrupada por uma
-  anotacao categorica (histograma, densidade ou violino); com selecao, cada
-  grupo dividido em selecionadas e nao selecionadas.
-- "Features" (4): uma linha por feature recebida, com o que foi mantido e por
-  que o resto caiu (degenerate_report.csv + SIFTED), o heatmap das correlacoes
-  feature x algoritmo e a silhueta por k.
-- "Data Explorer" (5): scatter x-y com a cor global e a selecao destacada,
-  filtro pandas.query local e o botao "Usar filtro como selecao".
+- "Instance Space" (0): a wide z_1 x z_2 scatter, with the lasso active on
+  open, colored by the global color variable; optional overlays of footprints
+  (algorithm and type), the CLOISTER boundary and the hard footprint.
+- "Footprint Performance" (1): map of the footprints with the selection
+  highlighted and the footprint_performance.csv table with the status
+  (ok / suspect / empty).
+- "Algorithm Selection" (2): what PYTHIA and CLOISTER produced: map colored by
+  the recommended algorithm (selection0, "none" as a category), by whether the
+  recommended algorithm is good for the instance (algorithm_bin.csv) or by an
+  algorithm's pr0_sub (P(bad) out of sample), with the CLOISTER boundary and
+  the selection highlighted; svm_table; cross-validation confusion matrices; a
+  nearly-trivial-selector warning (one algorithm in more than TRIVIAL_SELECTOR
+  of the instances).
+- "Distributions" (3): distribution of numeric variables grouped by a
+  categorical annotation (histogram, density or violin); with a selection,
+  each group is split into selected and not selected.
+- "Features" (4): one row per received feature, with what was kept and why
+  the rest was dropped (degenerate_report.csv + SIFTED), the feature x
+  algorithm correlation heatmap and the silhouette per k.
+- "Data Explorer" (5): x-y scatter with the global color and the selection
+  highlighted, a local pandas.query filter and the "Use filter as selection"
+  button.
 
-Na sidebar fixa: o seletor de dataset, com resultados/is/ e runs/ (execucoes
-disparadas pela interface) em grupos separados; o bloco "Novo instance space"
-(isaspace.ui.novo: envio de metadata.csv, validacao, regra de desempenho e
-execucao do engine em subprocesso); tipos inferidos das anotacoes (trocaveis
-na sessao) e os botoes de exportacao (instancias, selecao, rotulos da
-footprint ativa).
+The fixed sidebar has the dataset selector, with resultados/is/ and runs/
+(runs launched from the UI) in separate groups; the "New instance space" block
+(isaspace.ui.new_space: metadata.csv upload, validation, performance rule and
+engine run in a subprocess); the inferred annotation types (changeable for the
+session) and the export buttons (instances, selection, labels of the active
+footprint).
 
-ESTADO GLOBAL. EstadoGlobal (param.Parameterized) guarda o dataset ativo, o
-IsResult lido, a selecao e a variavel de cor; as abas leem so dele e se
-redesenham quando ele muda. A selecao e um conjunto de rotulos Row:
-    None           sem selecao
-    frozenset()    selecao vazia (lasso numa area sem pontos, filtro sem linhas)
-    frozenset(...) instancias selecionadas
-Ela vem do stream Selection1D do scatter da aba 0. O Bokeh manda um
-Selection1D a cada movimento do lasso e nenhum quando o lasso cai numa area
-vazia partindo de "nada selecionado" (os indices nao mudam); por isso o
-Selection1D so guarda o indice mais recente e a selecao global e gravada depois
-do fim do gesto: os streams de geometria (Lasso, BoundsXY), que chegam uma vez
-ao soltar o mouse, agendam a gravacao em ESPERA_GEOMETRIA_MS, e cada
-Selection1D a reagenda em ESPERA_SELECAO_MS.
+GLOBAL STATE. GlobalState (param.Parameterized) holds the active dataset, the
+loaded IsResult, the selection and the color variable; the tabs only read
+from it and redraw when it changes. The selection is a set of Row labels:
+    None           no selection
+    frozenset()    empty selection (lasso over an area without points, filter without rows)
+    frozenset(...) selected instances
+It comes from the Selection1D stream of the tab 0 scatter. Bokeh sends a
+Selection1D on every lasso move and none when the lasso falls on an empty area
+starting from "nothing selected" (the indices do not change); so Selection1D
+only stores the latest index and the global selection is written after the
+gesture ends: the geometry streams (Lasso, BoundsXY), which arrive once when
+the mouse is released, schedule the write in GEOMETRY_WAIT_MS, and each
+Selection1D reschedules it in SELECTION_WAIT_MS.
 
-A variavel de cor e global: os seletores das abas 0 e 5 sao duas vistas do
-mesmo EstadoGlobal.cor.
+The color variable is global: the selectors of tabs 0 and 5 are two views of
+the same GlobalState.color.
 
-TITULO. O titulo do template do Panel 1.9 so e aplicado na primeira
-renderizacao (panel/template/base.py:770-788, e o servidor desliga
-use_for_title); o nome do dataset vai num pane do cabecalho e no componente
-TituloAba, que escreve document.title no navegador.
+TITLE. The Panel 1.9 template title is only applied on the first render
+(panel/template/base.py:770-788, and the server turns use_for_title off); the
+dataset name goes to a header pane and to the TabTitle component, which
+writes document.title in the browser.
 
-REGRA ARQUITETURAL: este modulo nao importa instancespace, pyispace, pyhard nem
-sklearn; le apenas as pastas de saida do engine via isaspace.ui.loader_is
-(formato em docs/output_format.md). So isaspace.ui.execucao conhece o engine,
-e o roda em subprocesso. O app anterior (Panel 0.14, pyispace) esta em
-isaspace/ui/app_legacy.py.
+ARCHITECTURAL RULE: this module does not import instancespace, pyispace,
+pyhard or sklearn; it only reads the engine's output folders via
+isaspace.ui.loader_is (format in docs/output_format.md). Only
+isaspace.ui.runner knows the engine, and runs it in a subprocess. The previous
+app (Panel 0.14, pyispace; legacy, in Portuguese) is isaspace/ui/app_legacy.py.
 
-Versoes alvo: Panel 1.9.4, HoloViews 1.23.2, Bokeh 3.9.2 (.venv-isa).
+Target versions: Panel 1.9.4, HoloViews 1.23.2, Bokeh 3.9.2 (.venv-isa).
 
-Uso (da raiz do projeto, com o .venv-isa):
+Usage (from the project root, with the .venv-isa):
     python -m isaspace.ui.app [--port 5006] [--no-show] [--root resultados/is] [--runs runs]
 """
 
@@ -74,1347 +77,1385 @@ import numpy as np
 import pandas as pd
 import panel as pn
 import param
-from bokeh.models import HoverTool
+from bokeh.models import FixedTicker, HoverTool
 from holoviews.streams import BoundsXY, Lasso, PlotReset, Selection1D
 from panel.custom import JSComponent
 
-RAIZ = Path(__file__).resolve().parents[2]
-if str(RAIZ) not in sys.path:
-    sys.path.insert(0, str(RAIZ))
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from isaspace.ui.execucao import PASTA_RUNS  # noqa: E402
 from isaspace.ui.loader_is import (  # noqa: E402
-    CATEGORICA, IDENTIFICADOR, NUMERICA, SUSPEITA, VAZIA, e_numerica, list_available,
-    load_is_output,
+    CATEGORICAL, EMPTY, FORCED, IDENTIFIER, INFERRED, NUMERIC, SUSPECT, TIE, is_numeric_type,
+    list_available, load_is_output,
 )
-from isaspace.ui.novo import NovoInstanceSpace  # noqa: E402
+from isaspace.ui.new_space import NewSpacePanel  # noqa: E402
+from isaspace.ui.runner import RUNS_DIR  # noqa: E402
 
 pn.extension("tabulator", notifications=True)
 pn.config.disconnect_notification = (
-    "Conexão com o servidor perdida: esta página não atualiza mais. Recarregue (F5)."
+    "Connection to the server lost: this page no longer updates. Reload it (F5)."
 )
 hv.extension("bokeh")
 
-TITULO = "isa-instance"
+TITLE = "isa-instance"
 TABS = ["Instance Space", "Footprint Performance", "Algorithm Selection", "Distributions",
         "Features", "Data Explorer"]
-PASTA_IS = RAIZ / "resultados" / "is"
-# chaves do seletor de dataset: "<origem>/<pasta>"; o rotulo e so a pasta
-ORIGENS = {"is": "resultados/is", "runs": "runs (execuções pela interface)"}
+IS_DIR = ROOT / "resultados" / "is"
+# dataset selector keys: "<origin>/<folder>"; the label is just the folder
+ORIGINS = {"is": "resultados/is", "runs": "runs (launched from this interface)"}
 CONTROL_WIDTH = 300
-TODOS = "todos"
+ALL = "all"
 MAX_DIST_VARS = 6
-R2_BAIXO = 0.3              # abaixo disso o plano 2D explica pouco da variavel
-ESPERA_GEOMETRIA_MS = 150   # fim do gesto (Lasso/BoundsXY) -> grava a selecao
-ESPERA_SELECAO_MS = 400     # Selection1D sem geometria (debounce)
-PALETA_ALGOS = ["#e63946", "#2a9d8f", "#e9c46a", "#8338ec", "#ff7f0e", "#118ab2",
+LOW_R2 = 0.3                # below this the 2D plane explains little of the variable
+GEOMETRY_WAIT_MS = 150      # end of the gesture (Lasso/BoundsXY) -> store the selection
+SELECTION_WAIT_MS = 400     # Selection1D without geometry (debounce)
+ALGO_PALETTE = ["#e63946", "#2a9d8f", "#e9c46a", "#8338ec", "#ff7f0e", "#118ab2",
                 "#6a994e", "#bc4749", "#577590", "#f15bb5"]
-COR_BASE = "#5c677d"        # pontos do mapa de footprints
-COR_TODAS = "#5c677d"       # serie "Todas" nas distribuicoes
-COR_SEL = "#e63946"         # serie "Selecionadas"
-ALPHA_SEL, ALPHA_FORA, ALPHA_NEUTRO = 0.9, 0.12, 0.7
-NENHUM = "nenhum"           # valor ausente numa variavel categorica
-SEM_GRUPO = "(nenhum)"      # opcao "agrupar por" sem agrupamento
-TIPOS_DIST = ["histograma", "densidade", "violino"]
-MIN_GRUPOS_VIOLINO = 3      # a partir daqui histogramas sobrepostos ficam ilegiveis
-COR_NAO_SEL = "#adb5bd"     # parte "nao selecionadas" dos violinos
-PALETA_GRUPOS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
+BASE_COLOR = "#5c677d"      # points of the footprint map
+ALL_COLOR = "#5c677d"       # "all" series in the distributions
+SEL_COLOR = "#e63946"       # "selected" series
+ALPHA_SEL, ALPHA_OUT, ALPHA_NEUTRAL = 0.9, 0.12, 0.7
+NONE = "none"               # missing value of a categorical variable
+NO_GROUP = "(none)"         # "group by" option without grouping
+DIST_TYPES = ["histogram", "density", "violin"]
+MIN_VIOLIN_GROUPS = 3       # from here on overlaid histograms become unreadable
+NOT_SEL_COLOR = "#adb5bd"   # "not selected" half of the violins
+GROUP_PALETTE = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
                  "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
-# graficos empilhados numa pagina que rola: sem wheel_zoom ativo, a roda do
-# mouse rola a pagina em vez de dar zoom no grafico sob o cursor
-SEM_ROLAGEM = dict(active_tools=["pan"])
-# nomes das colunas da tabela de features na tela (o loader usa os nomes longos)
-COLUNAS_FEATURES = {"substituida_por": "ficou no lugar", "max_abs_rho": "|rho| máx",
-                    "algoritmo_rho": "algoritmo", "pval": "p", "r2_pilot": "r² PILOT"}
-# aba Algorithm Selection
-SELETOR_TRIVIAL = 0.9       # um algoritmo recomendado em mais que isso das instancias
-COR_NENHUM = "#6c757d"      # sem recomendacao (selection0 = -1); cinza escuro, visivel no branco
-AS_RECOMENDADO, AS_CONCORDANCIA, AS_PR0 = "recomendado", "concordancia", "pr0_sub"
-AS_CORES = {"algoritmo recomendado (selection0)": AS_RECOMENDADO,
-            "concordância com o melhor observado": AS_CONCORDANCIA,
-            "pr0_sub de um algoritmo": AS_PR0}
-IGUAL, DIFERENTE, SEM_REC = ("igual ao melhor observado", "diferente do melhor observado",
-                             "sem recomendação")
-CORES_CONCORDANCIA = {IGUAL: "#2a9d8f", DIFERENTE: "#f4a261", SEM_REC: COR_NENHUM}
-# colunas da svm_table na tela: (nome no arquivo, nome curto)
-COLUNAS_SVM = [("CV_model_accuracy", "acurácia CV %"), ("CV_model_precision", "precisão CV %"),
-               ("CV_model_recall", "recall CV %"), ("Probability_of_good", "P(bom)"),
-               ("Avg_Perf_all_instances", "desemp. médio"),
-               ("Avg_Perf_selected_instances", "desemp. prev. boas")]
-EXPORT_DERIVADAS = ["z_1", "z_2", "NumGoodAlgos", "IsBetaEasy", "best_algo", "best_algo_svm"]
-# colunas derivadas de IsResult.instances oferecidas como cor: (rotulo, tipo)
-DERIVADAS = {
-    "NumGoodAlgos": ("n. de algoritmos bons", NUMERICA),
-    "IsBetaEasy": ("beta-fácil", CATEGORICA),
-    "best_algo": ("melhor algoritmo observado", CATEGORICA),
-    "best_algo_svm": ("recomendado pelo PYTHIA", CATEGORICA),
+NONE_COLOR = "#6c757d"      # no value / no recommendation: dark gray, visible on white
+TIE_COLOR = "#b0b7bf"       # tie for the best observed value: light gray
+# stacked plots on a scrolling page: without an active wheel_zoom, the mouse
+# wheel scrolls the page instead of zooming the plot under the cursor
+NO_SCROLL_ZOOM = dict(active_tools=["pan"])
+# tables: no sort arrows (a few rows) and wrapped headers, so they fit the width
+TABLE_CONFIG = {"columnDefaults": {"headerSort": False, "headerWordWrap": True}}
+MAX_DISCRETE_LEVELS = 12    # integer color variables with up to this many values: one color each
+REASON_WIDTH = 260          # px of the "reason" column of the features table
+REASON_CHARS_PER_LINE = 34  # characters that fit in one line of that column
+# on-screen names of the features table columns (the loader uses the long names)
+FEATURE_COLUMNS = {"replaced_by": "kept instead", "max_abs_rho": "max |rho|",
+                   "rho_algorithm": "algorithm", "pval": "p", "r2_pilot": "PILOT r²"}
+# Algorithm Selection tab
+TRIVIAL_SELECTOR = 0.9      # one algorithm recommended in more than this fraction of instances
+AS_RECOMMENDED, AS_GOODNESS, AS_PR0 = "recommended", "goodness", "pr0_sub"
+AS_COLORS = {"recommended algorithm (selection0)": AS_RECOMMENDED,
+             "recommended good / bad": AS_GOODNESS,
+             "pr0_sub of an algorithm": AS_PR0}
+REC_GOOD, REC_BAD, NO_REC = "recommended good", "recommended bad", "no recommendation"
+GOODNESS_COLORS = {REC_GOOD: "#2a9d8f", REC_BAD: "#e76f51", NO_REC: NONE_COLOR}
+# svm_table columns on screen: (name in the file, short name)
+SVM_COLUMNS = [("CV_model_accuracy", "CV accuracy %"), ("CV_model_precision", "CV precision %"),
+               ("CV_model_recall", "CV recall %"), ("Probability_of_good", "P(good)"),
+               ("Avg_Perf_all_instances", "mean perf."),
+               ("Avg_Perf_selected_instances", "mean perf. pred. good")]
+EXPORT_DERIVED = ["z_1", "z_2", "NumGoodAlgos", "IsBetaEasy", "best_algo", "best_algo_or_tie",
+                  "n_tied_best", "best_algo_svm"]
+# derived columns of IsResult.instances offered as colors: (label, type)
+DERIVED = {
+    "NumGoodAlgos": ("number of good algorithms", NUMERIC),
+    "IsBetaEasy": ("beta-easy", CATEGORICAL),
+    "best_algo_or_tie": ("best observed algorithm", CATEGORICAL),
+    "n_tied_best": ("algorithms tied for the best", NUMERIC),
+    "best_algo_svm": ("recommended by PYTHIA", CATEGORICAL),
 }
+# categorical colors whose values are algorithm names: fixed algorithm colors
+ALGO_VALUED = ("best_algo_or_tie", "best_algo_svm")
 
 
-class TituloAba(JSComponent):
-    """Escreve `titulo` em document.title no navegador (ver TITULO no docstring)."""
+class TabTitle(JSComponent):
+    """Writes `text` into document.title in the browser (see TITLE in the docstring)."""
 
-    titulo = param.String(default="")
+    text = param.String(default="")
 
     _esm = """
     export function render({ model }) {
-      const aplicar = () => { if (model.titulo) document.title = model.titulo }
-      aplicar()
-      model.on("titulo", aplicar)
+      const apply = () => { if (model.text) document.title = model.text }
+      apply()
+      model.on("text", apply)
     }
     """
 
 
-class EstadoGlobal(param.Parameterized):
-    """Estado unico da interface: todas as abas leem daqui."""
+class GlobalState(param.Parameterized):
+    """Single state of the interface: every tab reads from here."""
 
     dataset = param.Selector(default=None, objects=[], doc="""
-        Chave '<origem>/<pasta>' da saida do engine (is/iris, runs/<nome>_<data>)""")
-    resultado = param.Parameter(default=None, doc="IsResult do dataset ativo")
-    selecao = param.Parameter(default=None, doc="""
-        None = sem selecao; frozenset de rotulos Row, vazio = selecao vazia""")
-    cor = param.String(default="", doc="coluna de IsResult.instances que colore os pontos")
+        Key '<origin>/<folder>' of the engine output (is/iris, runs/<name>_<date>)""")
+    result = param.Parameter(default=None, doc="IsResult of the active dataset")
+    selection = param.Parameter(default=None, doc="""
+        None = no selection; frozenset of Row labels, empty = empty selection""")
+    color = param.String(default="", doc="column of IsResult.instances that colors the points")
 
 
-def catalogo_de_cores(r) -> dict:
-    """{coluna de r.instances: (rotulo, grupo, tipo)} das variaveis de cor."""
+def color_catalog(r) -> dict:
+    """{column of r.instances: (label, group, type)} of the color variables."""
     cat = {}
-    for col, tipo in r.annotations.items():
-        if tipo != IDENTIFICADOR:           # identificadores nao colorem pontos
-            cat[col] = (col, "Anotações", tipo)
+    for col, kind in r.annotations.items():
+        if kind != IDENTIFIER:              # identifiers do not color points
+            cat[col] = (col, "Annotations", kind)
     if r.source_column is not None:
-        cat[r.source_column] = ("source", "Anotações", CATEGORICA)
+        cat[r.source_column] = ("source", "Annotations", CATEGORICAL)
     for f in r.features:
-        cat[f"feature_{f}"] = (f, "Features no PILOT", NUMERICA)
-    for f in r.features_fora_pilot:
-        cat[f"feature_{f}"] = (f, "Features fora do PILOT (SIFTED)", NUMERICA)
+        cat[f"feature_{f}"] = (f, "Features in PILOT", NUMERIC)
+    for f in r.features_outside_pilot:
+        cat[f"feature_{f}"] = (f, "Features outside PILOT (SIFTED)", NUMERIC)
     for a in r.algos:
-        cat[f"algo_{a}"] = (f"algo_{a}", "Desempenho (algo_*)", NUMERICA)
-    for col, (rotulo, tipo) in DERIVADAS.items():
-        cat[col] = (rotulo, "Derivadas", tipo)
+        cat[f"algo_{a}"] = (f"algo_{a}", "Performance (algo_*)", NUMERIC)
+    for col, (label, kind) in DERIVED.items():
+        cat[col] = (label, "Derived", kind)
     return cat
 
 
-def grupos_categoricos(r) -> list:
-    """Colunas de r.instances que servem para agrupar: anotacoes categoricas e source."""
-    cols = [c for c, t in r.annotations.items() if t == CATEGORICA]
+def categorical_groups(r) -> list:
+    """Columns of r.instances usable for grouping: categorical annotations and source."""
+    cols = [c for c, t in r.annotations.items() if t == CATEGORICAL]
     return cols + ([r.source_column] if r.source_column else [])
 
 
-def cor_padrao(r, cat) -> str:
-    """Primeira anotacao categorica; senao a primeira anotacao; senao NumGoodAlgos."""
-    for col, tipo in r.annotations.items():
-        if tipo == CATEGORICA:
+def default_color(r, cat) -> str:
+    """First categorical annotation; else the first colorable annotation; else NumGoodAlgos."""
+    for col, kind in r.annotations.items():
+        if kind == CATEGORICAL and col in cat:
             return col
-    return next(iter(r.annotations), "NumGoodAlgos")
+    return next((c for c in r.annotations if c in cat), "NumGoodAlgos")
 
 
-def grupos_select(cat) -> dict:
-    """{grupo: {rotulo: coluna}} para pn.widgets.Select(groups=...); rotulo
-    repetido entre grupos (anotacao com o nome de uma feature) vira a coluna."""
-    contagem = {}
-    for rotulo, _, _ in cat.values():
-        contagem[rotulo] = contagem.get(rotulo, 0) + 1
-    grupos = {}
-    for col, (rotulo, grupo, _) in cat.items():
-        grupos.setdefault(grupo, {})[rotulo if contagem[rotulo] == 1 else col] = col
-    return grupos
+def select_groups(cat) -> dict:
+    """{group: {label: column}} for pn.widgets.Select(groups=...); a label
+    repeated across groups (an annotation named like a feature) becomes the column."""
+    count = {}
+    for label, _, _ in cat.values():
+        count[label] = count.get(label, 0) + 1
+    groups = {}
+    for col, (label, group, _) in cat.items():
+        groups.setdefault(group, {})[label if count[label] == 1 else col] = col
+    return groups
 
 
-def estilo_de_cor(valores: pd.Series, tipo: str) -> dict:
-    if tipo == CATEGORICA:
-        n = valores.nunique()
+def color_style(values: pd.Series, kind: str, fixed=None) -> dict:
+    if kind == CATEGORICAL:
+        if fixed is not None:
+            present = set(values)
+            return dict(cmap={k: v for k, v in fixed.items() if k in present},
+                        colorbar=False, show_legend=True)
+        n = values.nunique()
         cmap = "Category10" if n <= 10 else ("Category20" if n <= 20 else "glasbey")
         return dict(cmap=cmap, colorbar=False, show_legend=True)
+    v = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(v) and bool(np.all(np.mod(v, 1) == 0)):
+        lo, hi = int(v.min()), int(v.max())
+        if 0 < hi - lo < MAX_DISCRETE_LEVELS:
+            # integer values (counts): one color per value, ticks only on integers
+            return dict(cmap="viridis", colorbar=True, show_legend=False, clim=(lo - 0.5, hi + 0.5),
+                        color_levels=hi - lo + 1,
+                        colorbar_opts={"ticker": FixedTicker(ticks=list(range(lo, hi + 1)))})
     return dict(cmap="viridis", colorbar=True, show_legend=False)
 
 
-def poligonos_hv(fp, cor, rotulo, fill_alpha=0.25, tracejado=False):
-    """Footprint do loader_is -> hv.Polygons (uma geometria por Part, com furos)."""
-    geoms = [{"x": p.exterior[:, 0], "y": p.exterior[:, 1], "holes": [list(p.furos)]}
-             for p in fp.poligonos]
-    # show_legend explicito: no HoloViews 1.23 Polygons e Path nascem sem legenda
-    estilo = dict(fill_color=cor, line_color=cor, fill_alpha=fill_alpha, line_width=1.5,
-                  line_alpha=0.85, show_legend=True)
-    if tracejado:
-        estilo.update(fill_alpha=fill_alpha / 2, line_dash="dashed", line_width=2)
-    return hv.Polygons(geoms, label=rotulo).opts(**estilo)
+def footprint_polygons(fp, color, label, fill_alpha=0.25, dashed=False):
+    """loader_is Footprint -> hv.Polygons (one geometry per Part, with holes)."""
+    geoms = [{"x": p.exterior[:, 0], "y": p.exterior[:, 1], "holes": [list(p.holes)]}
+             for p in fp.polygons]
+    # explicit show_legend: in HoloViews 1.23 Polygons and Path start without a legend
+    style = dict(fill_color=color, line_color=color, fill_alpha=fill_alpha, line_width=1.5,
+                 line_alpha=0.85, show_legend=True)
+    if dashed:
+        style.update(fill_alpha=fill_alpha / 2, line_dash="dashed", line_width=2)
+    return hv.Polygons(geoms, label=label).opts(**style)
 
 
 def cloister_hv(r) -> list:
-    """Fronteira do CLOISTER (e a podada, se diferente) como hv.Path."""
+    """CLOISTER boundary (and the pruned one, if different) as hv.Path."""
     if r.bounds is None:
         return []
-    anel = np.vstack([r.bounds.exterior, r.bounds.exterior[:1]])
-    camadas = [hv.Path([anel], label="CLOISTER").opts(
+    ring = np.vstack([r.bounds.exterior, r.bounds.exterior[:1]])
+    layers = [hv.Path([ring], label="CLOISTER").opts(
         color="black", line_width=2, line_dash="dashed", show_legend=True)]
     if r.bounds_pruned is not None and not np.array_equal(r.bounds.exterior, r.bounds_pruned.exterior):
-        anel = np.vstack([r.bounds_pruned.exterior, r.bounds_pruned.exterior[:1]])
-        camadas.append(hv.Path([anel], label="CLOISTER (podada)").opts(
+        ring = np.vstack([r.bounds_pruned.exterior, r.bounds_pruned.exterior[:1]])
+        layers.append(hv.Path([ring], label="CLOISTER (pruned)").opts(
             color="#6c757d", line_width=1.5, line_dash="dotted", show_legend=True))
-    return camadas
+    return layers
 
 
 def _pct(x) -> str:
-    return f"{100 * x:.1f}%".replace(".", ",")
+    return f"{100 * x:.1f}%"
+
+
+def _is_missing(v) -> bool:
+    return v is None or (isinstance(v, float) and np.isnan(v))
 
 
 class IsaApp:
-    """Interface do espaco de instancias: uma instancia por sessao do navegador."""
+    """Instance space interface: one instance per browser session."""
 
-    def __init__(self, root=PASTA_IS, runs=PASTA_RUNS):
+    def __init__(self, root=IS_DIR, runs=RUNS_DIR):
         self.root = Path(root)
         self.runs = Path(runs)
-        self.estado = EstadoGlobal()
-        grupos = self._listar_datasets()
+        self.state = GlobalState()
+        groups = self._list_datasets()
         if not self.datasets:
-            raise FileNotFoundError(f"nenhuma pasta com run_info.json em {self.root} nem em {self.runs}")
+            raise FileNotFoundError(f"no folder with run_info.json in {self.root} or {self.runs}")
         self._cache = {}
-        self._dados = None           # r.instances com Row como coluna (base dos plots)
-        self._catalogo = {}
-        self._building = False       # atualizando opcoes de widgets: ignora os eventos
-        self._doc = None             # documento da sessao (debounce da selecao)
-        self._geracao = 0            # streams de plots antigos sao ignorados
-        self._indice = []            # ultimo Selection1D do scatter da aba 0
-        self._pendente = None
-        self._selecao_do_plot = None  # ultima selecao gravada pelo proprio scatter
-        self._tipos_forcados = {}    # {dataset: {coluna do metadata: tipo}}, so nesta sessao
-        self._grupo_escolhido = False  # "agrupar por" escolhido pelo usuario (senao, o padrao)
+        self._data = None            # r.instances with Row as a column (base of the plots)
+        self._catalog = {}
+        self._building = False       # updating widget options: ignore the events
+        self._doc = None             # session document (selection debounce)
+        self._generation = 0         # streams of old plots are ignored
+        self._index = []             # latest Selection1D of the tab 0 scatter
+        self._pending = None
+        self._plot_selection = None  # latest selection written by the scatter itself
+        self._forced_types = {}      # {dataset: {metadata column: type}}, this session only
+        self._group_chosen = False   # "group by" chosen by the user (otherwise, the default)
 
-        # --- cabecalho: nome do dataset (pane) e titulo da aba do navegador
-        self.cab = pn.pane.HTML("", margin=(0, 10))
-        self.titulo_aba = TituloAba(titulo=TITULO, width=0, height=0, margin=0)
+        # --- header: dataset name (pane) and browser tab title
+        self.header = pn.pane.HTML("", margin=(0, 10))
+        self.tab_title = TabTitle(text=TITLE, width=0, height=0, margin=0)
 
-        # --- sidebar fixa
-        self.w_dataset = pn.widgets.Select(name="Dataset", groups=grupos, value=self.datasets[0],
+        # --- fixed sidebar
+        self.w_dataset = pn.widgets.Select(name="Dataset", groups=groups, value=self.datasets[0],
                                            width=CONTROL_WIDTH - 20)
-        self.novo = NovoInstanceSpace(self.runs, CONTROL_WIDTH - 40, self._on_execucao_concluida)
-        self.w_reload = pn.widgets.Button(name="Recarregar dataset", width=CONTROL_WIDTH - 20)
+        self.new_space = NewSpacePanel(self.runs, CONTROL_WIDTH - 40, self._on_run_done)
+        self.w_reload = pn.widgets.Button(name="Reload dataset", width=CONTROL_WIDTH - 20)
         self.info = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
         self.sel_info = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
-        self.w_limpar = pn.widgets.Button(name="Limpar seleção", width=CONTROL_WIDTH - 20)
-        self.tipos_card = pn.Card(title="Tipos inferidos", collapsed=True, visible=False,
+        self.w_clear = pn.widgets.Button(name="Clear selection", width=CONTROL_WIDTH - 20)
+        self.types_card = pn.Card(title="Inferred types", collapsed=True, visible=False,
                                   width=CONTROL_WIDTH - 20, margin=(5, 10))
-        largura = dict(width=CONTROL_WIDTH - 20)
-        self.w_exp_todas = pn.widgets.FileDownload(
-            callback=self._csv_todas, filename="instancias.csv",
-            label="Exportar instâncias (todas)", **largura)
+        width = dict(width=CONTROL_WIDTH - 20)
+        self.w_exp_all = pn.widgets.FileDownload(
+            callback=self._csv_all, filename="instances.csv",
+            label="Export instances (all)", **width)
         self.w_exp_sel = pn.widgets.FileDownload(
-            callback=self._csv_selecao, filename="selecao.csv", label="Exportar seleção",
-            disabled=True, **largura)
+            callback=self._csv_selection, filename="selection.csv", label="Export selection",
+            disabled=True, **width)
         self.w_exp_fp = pn.widgets.FileDownload(
             callback=self._csv_footprint, filename="footprint.csv",
-            label="Exportar rótulos da footprint", disabled=True, **largura)
-        self.exp_nota = pn.pane.Markdown("", **largura)
+            label="Export footprint labels", disabled=True, **width)
+        self.exp_note = pn.pane.Markdown("", **width)
 
-        # --- aba 0
-        self.w_cor = pn.widgets.Select(name="Cor dos pontos", width=CONTROL_WIDTH - 110)
+        # --- tab 0
+        self.w_color = pn.widgets.Select(name="Point color", width=CONTROL_WIDTH - 110)
         self.r2 = pn.pane.Markdown("", width=90, margin=(28, 0, 0, 5))
-        self.r2_aviso = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
+        self.r2_warning = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
         self.w_ov_fp = pn.widgets.Checkbox(name="Footprints")
-        self.w_ov_algo = pn.widgets.Select(name="Algoritmo", options=[TODOS], width=CONTROL_WIDTH - 40)
-        self.w_ov_tipo = pn.widgets.RadioButtonGroup(options=["good", "best"], value="good")
-        self.w_ov_cloister = pn.widgets.Checkbox(name="Fronteira do CLOISTER")
-        self.w_ov_hard = pn.widgets.Checkbox(name="Footprint hard (instâncias não beta-fáceis)")
-        self.ov_nota = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
-        self.espaco_status = pn.pane.Markdown("")
-        self.espaco_plot = pn.pane.HoloViews(sizing_mode="stretch_width", min_height=640)
+        self.w_ov_algo = pn.widgets.Select(name="Algorithm", options=[ALL], width=CONTROL_WIDTH - 40)
+        self.w_ov_type = pn.widgets.RadioButtonGroup(options=["good", "best"], value="good")
+        self.w_ov_cloister = pn.widgets.Checkbox(name="CLOISTER boundary")
+        self.w_ov_hard = pn.widgets.Checkbox(name="Hard footprint (instances that are not beta-easy)")
+        self.ov_note = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
+        self.space_status = pn.pane.Markdown("")
+        self.space_plot = pn.pane.HoloViews(sizing_mode="stretch_width", min_height=640)
 
-        # --- aba 1
-        self.w_fp_algo = pn.widgets.Select(name="Algoritmo", options=[TODOS], width=CONTROL_WIDTH - 20)
-        self.w_fp_tipo = pn.widgets.RadioButtonGroup(options=["good", "best"], value="good")
-        self.fp_aviso = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
+        # --- tab 1
+        self.w_fp_algo = pn.widgets.Select(name="Algorithm", options=[ALL], width=CONTROL_WIDTH - 20)
+        self.w_fp_type = pn.widgets.RadioButtonGroup(options=["good", "best"], value="good")
+        self.fp_warning = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
         self.fp_status = pn.pane.Markdown("")
         self.fp_plot = pn.pane.HoloViews(sizing_mode="stretch_width", min_height=460)
-        self.fp_tabela = pn.widgets.Tabulator(
-            pd.DataFrame(), disabled=True, layout="fit_data_stretch",
-            sizing_mode="stretch_width", height=280, show_index=True)
+        self.fp_table = pn.widgets.Tabulator(
+            pd.DataFrame(), disabled=True, layout="fit_columns", configuration=TABLE_CONFIG,
+            sizing_mode="stretch_width", height=280, show_index=True, selectable=False)
 
-        # --- aba Algorithm Selection
-        self.w_as_cor = pn.widgets.Select(name="Colorir por", options=AS_CORES,
-                                          value=AS_RECOMENDADO, width=CONTROL_WIDTH - 20)
-        self.w_as_algo = pn.widgets.Select(name="Algoritmo (pr0_sub)", width=CONTROL_WIDTH - 20,
+        # --- tab 2 (Algorithm Selection)
+        self.w_as_color = pn.widgets.Select(name="Color by", options=AS_COLORS,
+                                            value=AS_RECOMMENDED, width=CONTROL_WIDTH - 20)
+        self.w_as_algo = pn.widgets.Select(name="Algorithm (pr0_sub)", width=CONTROL_WIDTH - 20,
                                            visible=False)
-        self.w_as_cloister = pn.widgets.Checkbox(name="Fronteira do CLOISTER", value=True)
+        self.w_as_cloister = pn.widgets.Checkbox(name="CLOISTER boundary", value=True)
         self.as_status = pn.pane.Markdown("")
-        self.as_aviso = pn.Column(sizing_mode="stretch_width")
-        self.as_resumo = pn.pane.Markdown("")
+        self.as_warning = pn.Column(sizing_mode="stretch_width")
+        self.as_summary = pn.pane.Markdown("")
         self.as_plot = pn.pane.HoloViews(sizing_mode="stretch_width", min_height=520)
-        self.as_tabela = pn.widgets.Tabulator(
-            pd.DataFrame(), disabled=True, layout="fit_data_stretch", sizing_mode="stretch_width",
-            show_index=False, pagination=None, selectable=False)
-        self.as_nota_tabela = pn.pane.Markdown("")
-        self.as_confusao = pn.FlexBox(sizing_mode="stretch_width")
-        self.as_nota_confusao = pn.pane.Markdown("")
+        self.as_table = pn.widgets.Tabulator(
+            pd.DataFrame(), disabled=True, layout="fit_columns", configuration=TABLE_CONFIG,
+            sizing_mode="stretch_width", show_index=False, pagination=None, selectable=False)
+        self.as_table_note = pn.pane.Markdown("")
+        self.as_confusion = pn.FlexBox(sizing_mode="stretch_width")
+        self.as_confusion_note = pn.pane.Markdown("")
 
-        # --- aba 2
-        self.w_dist_vars = pn.widgets.MultiChoice(name="Variáveis", width=CONTROL_WIDTH - 20)
-        self.w_dist_grupo = pn.widgets.Select(name="Agrupar por", options=[SEM_GRUPO],
+        # --- tab 3 (Distributions)
+        self.w_dist_vars = pn.widgets.MultiChoice(name="Variables", width=CONTROL_WIDTH - 20)
+        self.w_dist_group = pn.widgets.Select(name="Group by", options=[NO_GROUP],
                                               width=CONTROL_WIDTH - 20)
-        self.w_dist_tipo = pn.widgets.RadioButtonGroup(options=TIPOS_DIST, value="histograma")
+        self.w_dist_type = pn.widgets.RadioButtonGroup(options=DIST_TYPES, value="histogram")
         self.dist_status = pn.pane.Markdown("")
         self.dist_plots = pn.Column(sizing_mode="stretch_width")
 
-        # --- aba 3 (Features)
-        self.feat_resumo = pn.pane.Markdown("")
-        self.feat_tabela = pn.widgets.Tabulator(
-            pd.DataFrame(), disabled=True, layout="fit_data_stretch", sizing_mode="stretch_width",
-            show_index=False, pagination=None, widths={"motivo": 300},
-            formatters={"motivo": {"type": "textarea"}})
+        # --- tab 4 (Features)
+        self.feat_summary = pn.pane.Markdown("")
+        self.feat_table = pn.widgets.Tabulator(
+            pd.DataFrame(), disabled=True, layout="fit_data_stretch", configuration=TABLE_CONFIG,
+            sizing_mode="stretch_width", show_index=False, pagination=None, selectable=False,
+            widths={"reason": REASON_WIDTH}, formatters={"reason": {"type": "textarea"}})
         self.feat_heatmap = pn.pane.HoloViews(sizing_mode="stretch_width")
-        self.feat_silhueta = pn.Column(sizing_mode="stretch_width")
+        self.feat_silhouette = pn.Column(sizing_mode="stretch_width")
 
-        # --- aba 4
-        self.w_ex_x = pn.widgets.Select(name="Eixo x", width=CONTROL_WIDTH - 20)
-        self.w_ex_y = pn.widgets.Select(name="Eixo y", width=CONTROL_WIDTH - 20)
-        self.w_ex_cor = pn.widgets.Select(name="Cor", width=CONTROL_WIDTH - 20)
+        # --- tab 5 (Data Explorer)
+        self.w_ex_x = pn.widgets.Select(name="X axis", width=CONTROL_WIDTH - 20)
+        self.w_ex_y = pn.widgets.Select(name="Y axis", width=CONTROL_WIDTH - 20)
+        self.w_ex_color = pn.widgets.Select(name="Color", width=CONTROL_WIDTH - 20)
         self.w_ex_query = pn.widgets.TextInput(
-            name="Filtro (pandas query)", width=CONTROL_WIDTH - 20,
-            placeholder="ex.: z_1 > 0 and NumGoodAlgos <= 3")
-        self.ex_filtro = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
-        self.w_ex_usar = pn.widgets.Button(name="Usar filtro como seleção", button_type="primary",
-                                           width=CONTROL_WIDTH - 20, disabled=True)
+            name="Filter (pandas query)", width=CONTROL_WIDTH - 20,
+            placeholder="e.g. z_1 > 0 and NumGoodAlgos <= 3")
+        self.ex_filter = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
+        self.w_ex_use = pn.widgets.Button(name="Use filter as selection", button_type="primary",
+                                          width=CONTROL_WIDTH - 20, disabled=True)
         self.ex_status = pn.pane.Markdown("")
         self.ex_plot = pn.pane.HoloViews(sizing_mode="stretch_width", min_height=460)
-        self.ex_titulo_tabela = pn.pane.Markdown("")
-        self.ex_tabela = pn.widgets.Tabulator(
+        self.ex_table_title = pn.pane.Markdown("")
+        self.ex_table = pn.widgets.Tabulator(
             pd.DataFrame(), disabled=True, layout="fit_data_stretch", sizing_mode="stretch_width",
             height=300, show_index=False, pagination="local", page_size=25)
-        self._ex_filtradas = None    # rotulos que passam no filtro (None = filtro invalido/vazio)
+        self._ex_filtered = None     # labels that pass the filter (None = invalid/empty filter)
 
-        # --- sidebar e abas
+        # --- sidebar and tabs
         self.controls = [
-            pn.Column("## Instance Space", pn.Row(self.w_cor, self.r2), self.r2_aviso,
-                      "### Sobrepor", self.w_ov_fp, self.w_ov_algo, self.w_ov_tipo,
-                      self.w_ov_cloister, self.w_ov_hard, self.ov_nota, width=CONTROL_WIDTH),
-            pn.Column("## Footprint Performance", self.w_fp_algo, "### Tipo", self.w_fp_tipo,
-                      self.fp_aviso, width=CONTROL_WIDTH),
-            pn.Column("## Algorithm Selection", self.w_as_cor, self.w_as_algo, self.w_as_cloister,
+            pn.Column("## Instance Space", pn.Row(self.w_color, self.r2), self.r2_warning,
+                      "### Overlay", self.w_ov_fp, self.w_ov_algo, self.w_ov_type,
+                      self.w_ov_cloister, self.w_ov_hard, self.ov_note, width=CONTROL_WIDTH),
+            pn.Column("## Footprint Performance", self.w_fp_algo, "### Type", self.w_fp_type,
+                      self.fp_warning, width=CONTROL_WIDTH),
+            pn.Column("## Algorithm Selection", self.w_as_color, self.w_as_algo, self.w_as_cloister,
                       pn.pane.Markdown(
-                          "O que o **PYTHIA** e o **CLOISTER** produziram.\n\n"
-                          "- **Recomendado** (selection0): entre os algoritmos cujo SVM final "
-                          "prevê *bom* na instância, o de maior precisão na validação cruzada; "
-                          "*nenhum* quando nenhum SVM prevê bom.\n"
-                          "- **Melhor observado**: maior desempenho real (portfolio.csv; empates "
-                          "desfeitos ao acaso pelo PRELIM).\n"
-                          "- **Probabilidades**: pr0_sub = P(ruim) **fora da amostra** (validação "
-                          "cruzada), não a do modelo final (pr0_hat).\n"
-                          "- **CLOISTER**: fronteira estimada do espaço onde instâncias plausíveis "
-                          "podem existir.", width=CONTROL_WIDTH - 20),
+                          "What **PYTHIA** and **CLOISTER** produced.\n\n"
+                          "- **Recommended** (selection0): among the algorithms whose final SVM "
+                          "predicts *good* for the instance, the one with the highest "
+                          "cross-validation precision; *none* when no SVM predicts good.\n"
+                          "- **Recommended good / bad**: whether the recommended algorithm is "
+                          "good for the instance in the observed performance "
+                          "(algorithm_bin.csv).\n"
+                          "- **Best observed**: highest observed performance; *tie* when several "
+                          "algorithms share it (portfolio.csv breaks those ties at random).\n"
+                          "- **Probabilities**: pr0_sub = P(bad) **out of sample** "
+                          "(cross-validation), not the final model's (pr0_hat).\n"
+                          "- **CLOISTER**: estimated boundary of the region where plausible "
+                          "instances can exist.", width=CONTROL_WIDTH - 20),
                       width=CONTROL_WIDTH),
             pn.Column("## Distributions", self.w_dist_vars,
-                      pn.pane.Markdown(f"_Até {MAX_DIST_VARS} variáveis por vez._"),
-                      self.w_dist_grupo, "### Tipo", self.w_dist_tipo,
-                      pn.pane.Markdown(f"_Com {MIN_GRUPOS_VIOLINO} grupos ou mais o padrão "
-                                       "é violino: histogramas sobrepostos ficam ilegíveis._"),
+                      pn.pane.Markdown(f"_Up to {MAX_DIST_VARS} variables at a time._"),
+                      self.w_dist_group, "### Type", self.w_dist_type,
+                      pn.pane.Markdown(f"_With {MIN_VIOLIN_GROUPS} groups or more the default "
+                                       "is violin: overlaid histograms become unreadable._"),
                       width=CONTROL_WIDTH),
             pn.Column("## Features", pn.pane.Markdown(
-                "Uma linha por feature recebida.\n\n"
-                "- **kept**: entrou no PILOT;\n"
-                "- **dropped_degenerate**: descartada antes do engine, pelo gerador do "
-                "metadata (degenerate_report.csv);\n"
-                "- **dropped_correlation**: nenhuma correlação significativa com o "
-                "desempenho (SIFTED);\n"
-                "- **dropped_redundancy**: outra feature do mesmo cluster ficou no lugar "
+                "One row per received feature.\n\n"
+                "- **kept**: went into PILOT;\n"
+                "- **dropped_degenerate**: dropped before the engine by the metadata "
+                "generator (degenerate_report.csv);\n"
+                "- **dropped_correlation**: no significant correlation with the performance "
+                "(SIFTED);\n"
+                "- **dropped_redundancy**: another feature of the same cluster was kept "
                 "(SIFTED).", width=CONTROL_WIDTH - 20), width=CONTROL_WIDTH),
-            pn.Column("## Data Explorer", self.w_ex_x, self.w_ex_y, self.w_ex_cor,
-                      self.w_ex_query, self.ex_filtro, self.w_ex_usar, width=CONTROL_WIDTH),
+            pn.Column("## Data Explorer", self.w_ex_x, self.w_ex_y, self.w_ex_color,
+                      self.w_ex_query, self.ex_filter, self.w_ex_use, width=CONTROL_WIDTH),
         ]
         self.sidebar = pn.Column(
-            self.w_dataset, self.w_reload, self.novo.card, self.info, self.tipos_card, self.sel_info,
-            self.w_limpar, pn.pane.Markdown("### Exportar", margin=(0, 10)), self.w_exp_todas,
-            self.w_exp_sel, self.w_exp_fp, self.exp_nota,
+            self.w_dataset, self.w_reload, self.new_space.card, self.info, self.types_card,
+            self.sel_info, self.w_clear, pn.pane.Markdown("### Export", margin=(0, 10)),
+            self.w_exp_all, self.w_exp_sel, self.w_exp_fp, self.exp_note,
             pn.layout.Divider(), self.controls[0], width=CONTROL_WIDTH,
         )
-        self._swap = len(self.sidebar.objects) - 1   # bloco que troca por aba
+        self._swap = len(self.sidebar.objects) - 1   # block that changes with the tab
         self.tabs = pn.Tabs(
-            (TABS[0], pn.Column(self.espaco_status, self.espaco_plot, sizing_mode="stretch_width")),
+            (TABS[0], pn.Column(self.space_status, self.space_plot, sizing_mode="stretch_width")),
             (TABS[1], pn.Column(self.fp_status, self.fp_plot,
-                                pn.pane.Markdown("### footprint_performance.csv"), self.fp_tabela,
+                                pn.pane.Markdown("### footprint_performance.csv"), self.fp_table,
                                 sizing_mode="stretch_width")),
-            (TABS[2], pn.Column(self.as_status, self.as_aviso, self.as_resumo, self.as_plot,
-                                pn.pane.Markdown("### Desempenho dos SVMs (svm_table.csv)"),
-                                self.as_tabela, self.as_nota_tabela,
-                                pn.pane.Markdown("### Matrizes de confusão da validação cruzada "
-                                                 "(positivo = bom)"),
-                                self.as_nota_confusao, self.as_confusao,
+            (TABS[2], pn.Column(self.as_status, self.as_warning, self.as_summary, self.as_plot,
+                                pn.pane.Markdown("### SVM performance (svm_table.csv)"),
+                                self.as_table, self.as_table_note,
+                                pn.pane.Markdown("### Cross-validation confusion matrices "
+                                                 "(positive = good)"),
+                                self.as_confusion_note, self.as_confusion,
                                 sizing_mode="stretch_width")),
             (TABS[3], pn.Column(self.dist_status, self.dist_plots, sizing_mode="stretch_width")),
-            (TABS[4], pn.Column(self.feat_resumo, self.feat_tabela,
-                                pn.pane.Markdown("### Correlações do SIFTED (feature × algoritmo)"),
-                                self.feat_heatmap, pn.pane.Markdown("### Silhueta por k (SIFTED)"),
-                                self.feat_silhueta, sizing_mode="stretch_width")),
-            (TABS[5], pn.Column(self.ex_status, self.ex_plot, self.ex_titulo_tabela,
-                                self.ex_tabela, sizing_mode="stretch_width")),
+            (TABS[4], pn.Column(self.feat_summary, self.feat_table,
+                                pn.pane.Markdown("### SIFTED correlations (feature × algorithm)"),
+                                self.feat_heatmap, pn.pane.Markdown("### Silhouette per k (SIFTED)"),
+                                self.feat_silhouette, sizing_mode="stretch_width")),
+            (TABS[5], pn.Column(self.ex_status, self.ex_plot, self.ex_table_title,
+                                self.ex_table, sizing_mode="stretch_width")),
             dynamic=True, sizing_mode="stretch_width",
         )
 
-        # --- ligacoes
-        self.estado.param.watch(self._on_dataset, "dataset")
+        # --- wiring
+        self.state.param.watch(self._on_dataset, "dataset")
         self.w_dataset.param.watch(self._on_widget_dataset, "value")
-        self.estado.param.watch(self._on_estado, ["resultado", "selecao", "cor"])
+        self.state.param.watch(self._on_state, ["result", "selection", "color"])
         self.tabs.param.watch(self._on_tab, "active")
         self.w_reload.on_click(self._on_reload)
-        self.w_limpar.on_click(lambda _: setattr(self.estado, "selecao", None))
-        for w in (self.w_cor, self.w_ex_cor):
-            w.param.watch(self._on_widget_cor, "value")
-        for w in (self.w_ov_fp, self.w_ov_algo, self.w_ov_tipo, self.w_ov_cloister, self.w_ov_hard):
-            w.param.watch(lambda _: self._refresh_espaco(), "value")
-        for w in (self.w_fp_algo, self.w_fp_tipo):
-            w.param.watch(lambda _: (self._refresh_footprints(), self._refresh_exportacao()), "value")
-        for w in (self.w_dist_vars, self.w_dist_tipo):
-            w.param.watch(lambda _: None if self._building else self._refresh_distribuicoes(), "value")
-        self.w_dist_grupo.param.watch(self._on_dist_grupo, "value")
-        for w in (self.w_as_cor, self.w_as_algo, self.w_as_cloister):
-            w.param.watch(lambda _: None if self._building else self._refresh_selecao_algo(), "value")
+        self.w_clear.on_click(lambda _: setattr(self.state, "selection", None))
+        for w in (self.w_color, self.w_ex_color):
+            w.param.watch(self._on_widget_color, "value")
+        for w in (self.w_ov_fp, self.w_ov_algo, self.w_ov_type, self.w_ov_cloister, self.w_ov_hard):
+            w.param.watch(lambda _: self._refresh_space(), "value")
+        for w in (self.w_fp_algo, self.w_fp_type):
+            w.param.watch(lambda _: (self._refresh_footprints(), self._refresh_export()), "value")
+        for w in (self.w_dist_vars, self.w_dist_type):
+            w.param.watch(lambda _: None if self._building else self._refresh_distributions(), "value")
+        self.w_dist_group.param.watch(self._on_dist_group, "value")
+        for w in (self.w_as_color, self.w_as_algo, self.w_as_cloister):
+            w.param.watch(lambda _: None if self._building else self._refresh_algo_selection(), "value")
         for w in (self.w_ex_x, self.w_ex_y, self.w_ex_query):
             w.param.watch(lambda _: self._refresh_explorer(), "value")
-        self.w_ex_usar.on_click(self._on_usar_filtro)
+        self.w_ex_use.on_click(self._on_use_filter)
 
-        self.estado.dataset = self.datasets[0]
+        self.state.dataset = self.datasets[0]
 
-    # ------------------------------------------------------------------ dados
-    def _listar_datasets(self):
-        """Relista resultados/is e runs; devolve os grupos do seletor
-        {origem: {pasta: chave}} (runs: mais recente primeiro)."""
-        grupos = {}
-        for origem, pasta in (("is", self.root), ("runs", self.runs)):
-            nomes = list_available(pasta) if pasta.is_dir() else []
-            if origem == "runs":
-                nomes.sort(key=lambda n: (pasta / n / "run_info.json").stat().st_mtime, reverse=True)
-            if nomes:
-                grupos[ORIGENS[origem]] = {n: f"{origem}/{n}" for n in nomes}
-        self.datasets = [c for g in grupos.values() for c in g.values()]
-        self.estado.param.dataset.objects = self.datasets
-        return grupos
+    # ------------------------------------------------------------------ data
+    def _list_datasets(self):
+        """Relist resultados/is and runs; return the selector groups
+        {origin: {folder: key}} (runs: most recent first)."""
+        groups = {}
+        for origin, folder in (("is", self.root), ("runs", self.runs)):
+            names = list_available(folder) if folder.is_dir() else []
+            if origin == "runs":
+                names.sort(key=lambda n: (folder / n / "run_info.json").stat().st_mtime, reverse=True)
+            if names:
+                groups[ORIGINS[origin]] = {n: f"{origin}/{n}" for n in names}
+        self.datasets = [k for g in groups.values() for k in g.values()]
+        self.state.param.dataset.objects = self.datasets
+        return groups
 
-    def _pasta(self, chave):
-        origem, _, nome = chave.partition("/")
-        return (self.runs if origem == "runs" else self.root) / nome
+    def _folder(self, key):
+        origin, _, name = key.partition("/")
+        return (self.runs if origin == "runs" else self.root) / name
 
     @staticmethod
-    def _nome(chave):
-        return chave.partition("/")[2]
+    def _name(key):
+        return key.partition("/")[2]
 
-    def _carregar(self, chave, forcar=False):
-        forcados = self._tipos_forcados.get(chave, {})
-        k = (chave, tuple(sorted(forcados.items())))
-        if forcar:
-            self._cache = {c: v for c, v in self._cache.items() if c[0] != chave}
+    def _load(self, key, force=False):
+        forced = self._forced_types.get(key, {})
+        k = (key, tuple(sorted(forced.items())))
+        if force:
+            self._cache = {c: v for c, v in self._cache.items() if c[0] != key}
         if k not in self._cache:
-            self._cache[k] = load_is_output(self._pasta(chave), annotation_types=forcados or None)
+            self._cache[k] = load_is_output(self._folder(key), annotation_types=forced or None)
         return self._cache[k]
 
     def _on_dataset(self, event):
-        self._trocar_dataset(event.new)
+        self._switch_dataset(event.new)
 
     def _on_widget_dataset(self, event):
-        if event.new in self.datasets and event.new != self.estado.dataset:
-            self.estado.dataset = event.new
+        if event.new in self.datasets and event.new != self.state.dataset:
+            self.state.dataset = event.new
 
     def _on_reload(self, _):
-        self.w_dataset.groups = self._listar_datasets()
-        if self.estado.dataset not in self.datasets:
-            self.estado.dataset = self.datasets[0]
+        self.w_dataset.groups = self._list_datasets()
+        if self.state.dataset not in self.datasets:
+            self.state.dataset = self.datasets[0]
         else:
-            self._trocar_dataset(self.estado.dataset, forcar=True)
+            self._switch_dataset(self.state.dataset, force=True)
 
-    def _on_execucao_concluida(self, pasta):
-        """Execucao do bloco Novo instance space terminou: relista e abre."""
-        self.w_dataset.groups = self._listar_datasets()
-        chave = f"runs/{Path(pasta).name}"
-        if chave in self.datasets:
-            self.estado.dataset = chave
+    def _on_run_done(self, path):
+        """A run of the New instance space block finished: relist and open it."""
+        self.w_dataset.groups = self._list_datasets()
+        key = f"runs/{Path(path).name}"
+        if key in self.datasets:
+            self.state.dataset = key
             if pn.state.notifications is not None:
-                pn.state.notifications.success(f"Novo instance space: {Path(pasta).name}", duration=6000)
+                pn.state.notifications.success(f"New instance space: {Path(path).name}", duration=6000)
 
-    def _trocar_dataset(self, chave, forcar=False, manter_selecao=False):
-        nome = self._nome(chave)
-        if self.w_dataset.value != chave:
-            self.w_dataset.value = chave
-        r = self._carregar(chave, forcar)
-        self._dados = r.instances.reset_index()
-        self._catalogo = catalogo_de_cores(r)
-        cor = self.estado.cor if self.estado.cor in self._catalogo else cor_padrao(r, self._catalogo)
+    def _switch_dataset(self, key, force=False, keep_selection=False):
+        name = self._name(key)
+        if self.w_dataset.value != key:
+            self.w_dataset.value = key
+        r = self._load(key, force)
+        self._data = r.instances.reset_index()
+        self._catalog = color_catalog(r)
+        color = self.state.color if self.state.color in self._catalog else default_color(r, self._catalog)
         self._set_options(r)
-        selecao = self.estado.selecao if manter_selecao else None
-        self._selecao_do_plot = None
-        # uma so rodada de watchers: resultado, selecao (zerada ao trocar de
-        # dataset) e cor valida
-        self.estado.param.update(resultado=r, selecao=selecao, cor=cor)
-        self.cab.object = f'<span style="font-size:1.25em;color:white">— {nome}</span>'
-        self.titulo_aba.titulo = f"{TITULO} - {nome}"
+        selection = self.state.selection if keep_selection else None
+        self._plot_selection = None
+        # a single round of watchers: result, selection (reset when the
+        # dataset changes) and a valid color
+        self.state.param.update(result=r, selection=selection, color=color)
+        self.header.object = f'<span style="font-size:1.25em;color:white">— {name}</span>'
+        self.tab_title.text = f"{TITLE} - {name}"
         self._refresh_info()
-        self._montar_tipos(r)
+        self._build_types(r)
 
-    # ---------------------------------------------- tipos inferidos
-    def _montar_tipos(self, r):
-        """Um seletor por anotacao cujo tipo foi inferido (ou trocado aqui)."""
+    # ---------------------------------------------------------- inferred types
+    def _build_types(self, r):
+        """One selector per annotation whose type was inferred (or changed here)."""
         meta = {v: k for k, v in r.annotation_renames.items()}
-        cols = [c for c, o in r.annotation_origins.items() if o in ("inferido", "forcado")]
-        linhas = [pn.pane.Markdown(
-            "_Sem declaração em annotations.json: tipo adivinhado. A troca vale só "
-            "nesta sessão._", width=CONTROL_WIDTH - 50)]
+        cols = [c for c, o in r.annotation_origins.items() if o in (INFERRED, FORCED)]
+        rows = [pn.pane.Markdown(
+            "_Not declared in annotations.json: the type was guessed. A change only "
+            "applies to this session._", width=CONTROL_WIDTH - 50)]
         for col in cols:
-            atual = r.annotations[col]
+            current = r.annotations[col]
             w = pn.widgets.RadioButtonGroup(
-                name=col, options={"numérica": NUMERICA, "categórica": CATEGORICA,
-                                   "identificador": IDENTIFICADOR},
-                value=atual if atual in (CATEGORICA, IDENTIFICADOR) else NUMERICA,
+                name=col, options={"numeric": NUMERIC, "categorical": CATEGORICAL,
+                                   "identifier": IDENTIFIER},
+                value=current if current in (CATEGORICAL, IDENTIFIER) else NUMERIC,
                 button_type="light")
-            w.param.watch(partial(self._on_tipo, meta.get(col, col)), "value")
-            linhas.append(pn.Column(pn.pane.Markdown(f"`{col}`", margin=(0, 10)), w))
-        self.tipos_card.objects = linhas
-        self.tipos_card.title = f"Tipos inferidos ({len(cols)})"
-        self.tipos_card.visible = bool(cols)
+            w.param.watch(partial(self._on_type, meta.get(col, col)), "value")
+            rows.append(pn.Column(pn.pane.Markdown(f"`{col}`", margin=(0, 10)), w))
+        self.types_card.objects = rows
+        self.types_card.title = f"Inferred types ({len(cols)})"
+        self.types_card.visible = bool(cols)
 
-    def _on_tipo(self, coluna, event):
-        chave = self.estado.dataset
-        self._tipos_forcados.setdefault(chave, {})[coluna] = event.new
-        self._trocar_dataset(chave, manter_selecao=True)
+    def _on_type(self, column, event):
+        key = self.state.dataset
+        self._forced_types.setdefault(key, {})[column] = event.new
+        self._switch_dataset(key, keep_selection=True)
 
     def _set_options(self, r):
-        """Opcoes de todos os seletores para o dataset, sem disparar redesenhos."""
+        """Options of every selector for the dataset, without triggering redraws."""
         self._building = True
         try:
-            grupos = grupos_select(self._catalogo)
-            for w in (self.w_cor, self.w_ex_cor):
-                w.groups = grupos
-            algos = [TODOS] + list(r.algos)
+            groups = select_groups(self._catalog)
+            for w in (self.w_color, self.w_ex_color):
+                w.groups = groups
+            algos = [ALL] + list(r.algos)
             for w in (self.w_ov_algo, self.w_fp_algo):
                 w.options = algos
                 if w.value not in algos:
-                    w.value = TODOS
+                    w.value = ALL
             self.w_as_algo.options = list(r.algos)
             if self.w_as_algo.value not in r.algos:
                 self.w_as_algo.value = r.algos[0]
-            numericas = self._numericas(r)
-            dist = [c for c in numericas if c not in ("z_1", "z_2")]
+            numeric = self._numeric_columns(r)
+            dist = [c for c in numeric if c not in ("z_1", "z_2")]
             self.w_dist_vars.options = dist
-            mantidas = [v for v in self.w_dist_vars.value if v in dist]
-            self.w_dist_vars.value = mantidas or [self._variavel_padrao(r)]
-            grupos = [SEM_GRUPO] + grupos_categoricos(r)
-            self.w_dist_grupo.options = grupos
-            if not self._grupo_escolhido or self.w_dist_grupo.value not in grupos:
-                # padrao: a primeira anotacao categorica
-                self.w_dist_grupo.value = grupos[1] if len(grupos) > 1 else SEM_GRUPO
-            self.w_dist_tipo.value = self._tipo_dist_padrao()
-            for w, padrao in ((self.w_ex_x, "z_1"), (self.w_ex_y, "z_2")):
-                w.options = numericas
-                if w.value not in numericas:
-                    w.value = padrao
+            kept = [v for v in self.w_dist_vars.value if v in dist]
+            self.w_dist_vars.value = kept or [self._default_variable(r)]
+            groups = [NO_GROUP] + categorical_groups(r)
+            self.w_dist_group.options = groups
+            if not self._group_chosen or self.w_dist_group.value not in groups:
+                # default: the first categorical annotation
+                self.w_dist_group.value = groups[1] if len(groups) > 1 else NO_GROUP
+            self.w_dist_type.value = self._default_dist_type()
+            for w, default in ((self.w_ex_x, "z_1"), (self.w_ex_y, "z_2")):
+                w.options = numeric
+                if w.value not in numeric:
+                    w.value = default
         finally:
             self._building = False
 
-    def _valores_grupo(self, col):
-        """Rotulos de grupo em texto (ausente = 'nenhum')."""
-        return self._dados[col].map(lambda v: NENHUM if v is None or (isinstance(v, float) and np.isnan(v))
-                                    else str(v)).astype(str)
+    def _group_values(self, col):
+        """Group labels as text (missing = 'none')."""
+        return self._data[col].map(lambda v: NONE if _is_missing(v) else str(v)).astype(str)
 
-    def _tipo_dist_padrao(self):
-        col = self.w_dist_grupo.value
-        if col == SEM_GRUPO or col not in self._dados.columns:
-            return "histograma"
-        return "violino" if self._valores_grupo(col).nunique() >= MIN_GRUPOS_VIOLINO else "histograma"
+    def _default_dist_type(self):
+        col = self.w_dist_group.value
+        if col == NO_GROUP or col not in self._data.columns:
+            return "histogram"
+        return "violin" if self._group_values(col).nunique() >= MIN_VIOLIN_GROUPS else "histogram"
 
-    def _on_dist_grupo(self, event):
+    def _on_dist_group(self, event):
         if self._building:
             return
-        self._grupo_escolhido = True
+        self._group_chosen = True
         self._building = True
         try:
-            self.w_dist_tipo.value = self._tipo_dist_padrao()
+            self.w_dist_type.value = self._default_dist_type()
         finally:
             self._building = False
-        self._refresh_distribuicoes()
+        self._refresh_distributions()
 
-    def _variavel_padrao(self, r):
-        """Primeira anotacao numerica continua (valores nao inteiros: evita ids e
-        contagens, como row_original); senao a primeira feature do PILOT."""
-        for col, tipo in r.annotations.items():
-            v = pd.to_numeric(self._dados[col], errors="coerce").dropna()
-            if tipo == NUMERICA and len(v) and (np.mod(v, 1) != 0).any():
+    def _default_variable(self, r):
+        """First continuous numeric annotation (non-integer values: avoids ids
+        and counts, such as row_original); otherwise the first PILOT feature."""
+        for col, kind in r.annotations.items():
+            v = pd.to_numeric(self._data[col], errors="coerce").dropna()
+            if kind == NUMERIC and len(v) and (np.mod(v, 1) != 0).any():
                 return col
         return f"feature_{r.features[0]}"
 
-    def _numericas(self, r):
+    def _numeric_columns(self, r):
         cols = ["z_1", "z_2"]
-        cols += [c for c, t in r.annotations.items() if e_numerica(t)]
+        cols += [c for c, t in r.annotations.items() if is_numeric_type(t)]
         cols += [f"feature_{f}" for f in r.features_all]
-        cols += [f"algo_{a}" for a in r.algos] + ["NumGoodAlgos"]
-        return [c for c in dict.fromkeys(cols) if c in self._dados.columns
-                and pd.api.types.is_numeric_dtype(self._dados[c])]
+        cols += [f"algo_{a}" for a in r.algos] + ["NumGoodAlgos", "n_tied_best"]
+        return [c for c in dict.fromkeys(cols) if c in self._data.columns
+                and pd.api.types.is_numeric_dtype(self._data[c])]
 
-    def _valores_cor(self, col, linhas=None):
-        """Valores da variavel de cor: texto para categoricas (ausente = 'nenhum')."""
-        s = self._dados[col] if linhas is None else self._dados.loc[linhas, col]
-        if self._catalogo[col][2] == CATEGORICA:
-            return s.map(lambda v: NENHUM if v is None or (isinstance(v, float) and np.isnan(v))
-                         else str(v)).astype(str)
+    def _color_values(self, col, rows=None):
+        """Values of the color variable: text for categorical ones (missing = 'none')."""
+        s = self._data[col] if rows is None else self._data.loc[rows, col]
+        if self._catalog[col][2] == CATEGORICAL:
+            return s.map(lambda v: NONE if _is_missing(v) else str(v)).astype(str)
         return pd.to_numeric(s, errors="coerce")
 
-    # ------------------------------------------------------------ selecao
-    def _posicoes(self, selecao):
-        if not selecao:
-            return []
-        return np.flatnonzero(self._dados["Row"].isin(selecao)).tolist()
+    def _fixed_colors(self, col):
+        """Algorithm colors (the same as the footprints) for columns whose values
+        are algorithm names; gray for tie and none."""
+        if col not in ALGO_VALUED:
+            return None
+        algos = self.state.result.algos
+        colors = {a: ALGO_PALETTE[i % len(ALGO_PALETTE)] for i, a in enumerate(algos)}
+        return {**colors, TIE: TIE_COLOR, NONE: NONE_COLOR}
 
-    def _mascara(self):
-        """Array booleano por instancia, ou None sem selecao."""
-        sel = self.estado.selecao
+    # ------------------------------------------------------------- selection
+    def _positions(self, selection):
+        if not selection:
+            return []
+        return np.flatnonzero(self._data["Row"].isin(selection)).tolist()
+
+    def _mask(self):
+        """Boolean array per instance, or None without a selection."""
+        sel = self.state.selection
         if sel is None:
             return None
-        return self._dados["Row"].isin(sel).to_numpy()
+        return self._data["Row"].isin(sel).to_numpy()
 
     def _alphas(self):
-        m = self._mascara()
+        m = self._mask()
         if m is None:
-            return np.full(len(self._dados), ALPHA_NEUTRO)
-        return np.where(m, ALPHA_SEL, ALPHA_FORA)
+            return np.full(len(self._data), ALPHA_NEUTRAL)
+        return np.where(m, ALPHA_SEL, ALPHA_OUT)
 
-    def _texto_selecao(self, contexto):
-        """Linha de status comum as abas (o texto e verificado pelos testes)."""
-        sel, n = self.estado.selecao, len(self._dados)
+    def _selection_text(self, context):
+        """Status line shared by the tabs (the text is checked by the tests)."""
+        sel, n = self.state.selection, len(self._data)
         if sel is None:
-            return f"**Sem seleção.** {contexto['sem']}"
+            return f"**No selection.** {context['none']}"
         if not sel:
-            return (f"**Seleção vazia**: nenhuma instância foi selecionada (0 de {n}). "
-                    f"{contexto['vazia']}")
-        return f"**{len(sel)} instâncias selecionadas** de {n}. {contexto['com']}"
+            return (f"**Empty selection**: no instance was selected (0 of {n}). "
+                    f"{context['empty']}")
+        return f"**{len(sel)} instances selected** of {n}. {context['some']}"
 
-    def _on_indice(self, geracao, index=None, **_):
-        if geracao != self._geracao:
+    def _on_index(self, generation, index=None, **_):
+        if generation != self._generation:
             return
-        self._indice = list(index or [])
-        self._agendar(ESPERA_SELECAO_MS)
+        self._index = list(index or [])
+        self._schedule(SELECTION_WAIT_MS)
 
-    def _on_geometria(self, geracao, **_):
-        if geracao == self._geracao:
-            self._agendar(ESPERA_GEOMETRIA_MS)
+    def _on_geometry(self, generation, **_):
+        if generation == self._generation:
+            self._schedule(GEOMETRY_WAIT_MS)
 
-    def _on_reset(self, geracao, resetting=False, **_):
-        if geracao == self._geracao and resetting:
-            self._selecao_do_plot = None
-            self.estado.selecao = None
+    def _on_reset(self, generation, resetting=False, **_):
+        if generation == self._generation and resetting:
+            self._plot_selection = None
+            self.state.selection = None
 
-    def _agendar(self, ms):
+    def _schedule(self, ms):
         if self._doc is None:
-            self._gravar_selecao()
+            self._store_selection()
             return
-        if self._pendente is not None:
+        if self._pending is not None:
             try:
-                self._doc.remove_timeout_callback(self._pendente)
+                self._doc.remove_timeout_callback(self._pending)
             except ValueError:
                 pass
-        self._pendente = self._doc.add_timeout_callback(self._gravar_selecao, ms)
+        self._pending = self._doc.add_timeout_callback(self._store_selection, ms)
 
-    def _gravar_selecao(self):
-        self._pendente = None
-        rotulos = frozenset(self._dados["Row"].iloc[self._indice])
-        self._selecao_do_plot = rotulos
-        self.estado.selecao = rotulos
+    def _store_selection(self):
+        self._pending = None
+        labels = frozenset(self._data["Row"].iloc[self._index])
+        self._plot_selection = labels
+        self.state.selection = labels
 
-    def _on_usar_filtro(self, _):
-        if self._ex_filtradas is not None:
-            self.estado.selecao = frozenset(self._ex_filtradas)
+    def _on_use_filter(self, _):
+        if self._ex_filtered is not None:
+            self.state.selection = frozenset(self._ex_filtered)
 
-    # --------------------------------------------------------------- cor
-    def _on_widget_cor(self, event):
-        if not self._building and event.new in self._catalogo:
-            self.estado.cor = event.new
+    # ----------------------------------------------------------------- color
+    def _on_widget_color(self, event):
+        if not self._building and event.new in self._catalog:
+            self.state.color = event.new
 
-    def _sync_cor(self):
+    def _sync_color(self):
         self._building = True
         try:
-            for w in (self.w_cor, self.w_ex_cor):
-                w.value = self.estado.cor
+            for w in (self.w_color, self.w_ex_color):
+                w.value = self.state.color
         finally:
             self._building = False
         self._refresh_r2()
 
     def _refresh_r2(self):
-        r, col = self.estado.resultado, self.estado.cor
+        r, col = self.state.result, self.state.color
         tab = r.pilot_r2
-        valor = None
+        value = None
         if col.startswith("feature_"):
             f = col[len("feature_"):]
             if f not in r.features:
                 self.r2.object = "r² —"
-                self.r2_aviso.object = "_Fora do PILOT (descartada pelo SIFTED): r² não se aplica._"
+                self.r2_warning.object = "_Outside PILOT (dropped by SIFTED): r² does not apply._"
                 return
-            linha = tab[(tab["kind"] == "feature") & (tab["variable"] == f)]
+            row = tab[(tab["kind"] == "feature") & (tab["variable"] == f)]
         elif col.startswith("algo_") and col[len("algo_"):] in r.algos:
-            linha = tab[(tab["kind"] == "algorithm") & (tab["variable"] == col[len("algo_"):])]
+            row = tab[(tab["kind"] == "algorithm") & (tab["variable"] == col[len("algo_"):])]
         else:
-            self.r2.object, self.r2_aviso.object = "", ""
+            self.r2.object, self.r2_warning.object = "", ""
             return
-        if len(linha):
-            valor = float(linha["r2"].iloc[0])
-        if valor is None:
-            self.r2.object, self.r2_aviso.object = "r² ?", ""
+        if len(row):
+            value = float(row["r2"].iloc[0])
+        if value is None:
+            self.r2.object, self.r2_warning.object = "r² ?", ""
             return
-        self.r2.object = f"r² **{valor:.2f}**".replace(".", ",")
-        limite = f"{R2_BAIXO:.1f}".replace(".", ",")
-        self.r2_aviso.object = (
-            f"⚠ _r² do PILOT baixo (< {limite}): o plano explica pouco desta variável; "
-            "o padrão de cor pode não aparecer na projeção._" if valor < R2_BAIXO else "")
+        self.r2.object = f"r² **{value:.2f}**"
+        self.r2_warning.object = (
+            f"⚠ _Low PILOT r² (< {LOW_R2:.1f}): the plane explains little of this variable; "
+            "the color pattern may not show in the projection._" if value < LOW_R2 else "")
 
-    # ------------------------------------------------------------ dispatch
-    def _on_estado(self, *events):
-        nomes = {e.name for e in events}
-        if self._dados is None:
+    # -------------------------------------------------------------- dispatch
+    def _on_state(self, *events):
+        names = {e.name for e in events}
+        if self._data is None:
             return
-        if nomes & {"resultado", "cor"}:
-            self._sync_cor()
+        if names & {"result", "color"}:
+            self._sync_color()
         self._refresh_sel_info()
-        externa = "selecao" in nomes and self.estado.selecao != self._selecao_do_plot
-        if nomes & {"resultado", "cor"} or externa:
-            self._refresh_espaco()
+        external = "selection" in names and self.state.selection != self._plot_selection
+        if names & {"result", "color"} or external:
+            self._refresh_space()
         else:
-            self.espaco_status.object = self._status_espaco()
-        if nomes & {"resultado", "selecao"}:
+            self.space_status.object = self._space_status()
+        if names & {"result", "selection"}:
             self._refresh_footprints()
-            self._refresh_selecao_algo()
-            self._refresh_distribuicoes()
-        if "resultado" in nomes:
+            self._refresh_algo_selection()
+            self._refresh_distributions()
+        if "result" in names:
             self._refresh_features()
         self._refresh_explorer()
-        self._refresh_exportacao()
+        self._refresh_export()
 
     def _on_tab(self, event):
         self.sidebar[self._swap] = self.controls[event.new]
 
     def _refresh_info(self):
-        r = self.estado.resultado
-        rob = r.run_info.get("trace_robustez", {})
-        origem = self.estado.dataset.partition("/")[0]
-        linhas = [
-            f"**{r.name}** _({'runs' if origem == 'runs' else 'resultados/is'})_",
-            f"Instâncias: **{r.n}**",
-            f"Features no PILOT: **{r.n_features_used}** de {len(r.features_all)}",
-            f"Algoritmos: **{len(r.algos)}**",
+        r = self.state.result
+        rob = r.run_info.get("trace_robustness", {})
+        origin = self.state.dataset.partition("/")[0]
+        rows = [
+            f"**{r.name}** _({'runs' if origin == 'runs' else 'resultados/is'})_",
+            f"Instances: **{r.n}**",
+            f"Features in PILOT: **{r.n_features_used}** of {len(r.features_all)}",
+            f"Algorithms: **{len(r.algos)}**",
         ]
-        if r.run_info.get("regra_bom"):
-            linhas.append(f"Regra: `{r.run_info['regra_bom']}`")
-        if rob.get("jitter_aplicado"):
-            linhas.append(f"_TRACE com jitter em {rob['pontos_perturbados']} instâncias "
-                          "(coordinates_trace.csv)_")
-        self.info.object = "  \n".join(linhas)
+        if r.run_info.get("good_rule"):
+            rows.append(f"Rule: `{r.run_info['good_rule']}`")
+        if rob.get("jitter_applied"):
+            rows.append(f"_TRACE with jitter on {rob['perturbed_points']} instances "
+                        "(coordinates_trace.csv)_")
+        self.info.object = "  \n".join(rows)
 
     def _refresh_sel_info(self):
-        sel = self.estado.selecao
+        sel = self.state.selection
         if sel is None:
-            texto = "Seleção: **nenhuma**"
+            text = "Selection: **none**"
         elif not sel:
-            texto = "Seleção: **vazia** (0 instâncias)"
+            text = "Selection: **empty** (0 instances)"
         else:
-            texto = f"Seleção: **{len(sel)}** instâncias"
-        self.sel_info.object = texto
+            text = f"Selection: **{len(sel)}** instances"
+        self.sel_info.object = text
 
-    # ----------------------------------------------------- aba 0: espaco
-    def _status_espaco(self):
-        return self._texto_selecao({
-            "sem": "O lasso está ativo: desenhe no gráfico para selecionar.",
-            "vazia": "O lasso não pegou nenhum ponto.",
-            "com": "Destacadas no gráfico e usadas nas outras abas.",
+    # --------------------------------------------------- tab 0: instance space
+    def _space_status(self):
+        return self._selection_text({
+            "none": "The lasso is active: draw on the plot to select.",
+            "empty": "The lasso did not catch any point.",
+            "some": "Highlighted in the plot and used in the other tabs.",
         })
 
-    def _sobreposicoes(self):
-        r = self.estado.resultado
-        camadas, notas = [], []
+    def _overlays(self):
+        r = self.state.result
+        layers, notes = [], []
         if self.w_ov_hard.value:
             fp = r.footprint_hard
-            if fp.poligonos:
-                camadas.append(poligonos_hv(fp, "#343a40", "hard (não beta-fáceis)", 0.15))
+            if fp.polygons:
+                layers.append(footprint_polygons(fp, "#343a40", "hard (not beta-easy)", 0.15))
             else:
-                notas.append("- footprint hard vazia")
+                notes.append("- hard footprint empty")
         if self.w_ov_fp.value:
-            tipo = self.w_ov_tipo.value
-            algos = r.algos if self.w_ov_algo.value == TODOS else [self.w_ov_algo.value]
+            kind = self.w_ov_type.value
+            algos = r.algos if self.w_ov_algo.value == ALL else [self.w_ov_algo.value]
             for a in algos:
-                fp = r.footprints[(a, tipo)]
-                cor = PALETA_ALGOS[r.algos.index(a) % len(PALETA_ALGOS)]
-                if fp.status == VAZIA:
-                    notas.append(f"- **{a} / {tipo}**: vazia")
+                fp = r.footprints[(a, kind)]
+                color = ALGO_PALETTE[r.algos.index(a) % len(ALGO_PALETTE)]
+                if fp.status == EMPTY:
+                    notes.append(f"- **{a} / {kind}**: empty")
                     continue
-                if fp.status == SUSPEITA:
-                    notas.append(f"- **{a} / {tipo}**: suspeita (pureza {fp.pureza:.2f}), tracejada")
-                camadas.append(poligonos_hv(fp, cor, f"{a} {tipo}", 0.22, fp.status == SUSPEITA))
+                if fp.status == SUSPECT:
+                    notes.append(f"- **{a} / {kind}**: suspect (purity {fp.purity:.2f}), dashed")
+                layers.append(footprint_polygons(fp, color, f"{a} {kind}", 0.22, fp.status == SUSPECT))
         if self.w_ov_cloister.value:
-            camadas += cloister_hv(r)
-        self.ov_nota.object = "\n".join(notas)
-        return camadas
+            layers += cloister_hv(r)
+        self.ov_note.object = "\n".join(notes)
+        return layers
 
-    def _refresh_espaco(self):
-        """Reconstroi o scatter da aba 0 (cor, dataset, sobreposicoes ou selecao
-        vinda de fora). A selecao atual volta como `selected`, e o Selection1D
-        novo comeca com esses indices."""
-        col = self.estado.cor
-        rotulo, _, tipo = self._catalogo[col]
-        dados = self._dados[["Row", "z_1", "z_2"]].copy()
-        dados["cor_valor"] = self._valores_cor(col).to_numpy()
-        posicoes = self._posicoes(self.estado.selecao)
-        self._geracao += 1
-        geracao = self._geracao
-        self._indice = posicoes
-        hover = HoverTool(tooltips=[("Row", "@Row"), (rotulo, "@cor_valor")])
-        estilo = dict(
-            color="cor_valor", size=6, alpha=0.85, nonselection_alpha=0.12, line_color=None,
+    def _refresh_space(self):
+        """Rebuild the tab 0 scatter (color, dataset, overlays or a selection
+        coming from outside). The current selection comes back as `selected`,
+        and the new Selection1D starts with those indices."""
+        col = self.state.color
+        label, _, kind = self._catalog[col]
+        data = self._data[["Row", "z_1", "z_2"]].copy()
+        data["color_value"] = self._color_values(col).to_numpy()
+        positions = self._positions(self.state.selection)
+        self._generation += 1
+        generation = self._generation
+        self._index = positions
+        hover = HoverTool(tooltips=[("Row", "@Row"), (label, "@color_value")])
+        style = dict(
+            color="color_value", size=6, alpha=0.85, nonselection_alpha=0.12, line_color=None,
             tools=["lasso_select", "box_select", hover], active_tools=["lasso_select"],
             responsive=True, min_height=620, show_grid=True, xlabel="z_1", ylabel="z_2",
-            title=f"Espaço de instâncias (PILOT) — cor: {rotulo}",
+            title=f"Instance space (PILOT) — color: {label}",
         )
-        estilo.update(estilo_de_cor(dados["cor_valor"], tipo))
-        if posicoes:
-            estilo["selected"] = posicoes
-        pontos = hv.Points(dados, ["z_1", "z_2"], [hv.Dimension("cor_valor", label=rotulo), "Row"]
-                           ).opts(**estilo)
-        Selection1D(source=pontos, index=posicoes).add_subscriber(partial(self._on_indice, geracao))
-        for stream in (Lasso(source=pontos), BoundsXY(source=pontos)):
-            stream.add_subscriber(partial(self._on_geometria, geracao))
-        PlotReset(source=pontos).add_subscriber(partial(self._on_reset, geracao))
-        camadas = self._sobreposicoes() + [pontos]
-        self.espaco_plot.object = reduce(lambda a, b: a * b, camadas).opts(
+        style.update(color_style(data["color_value"], kind, self._fixed_colors(col)))
+        if positions:
+            style["selected"] = positions
+        points = hv.Points(data, ["z_1", "z_2"], [hv.Dimension("color_value", label=label), "Row"]
+                           ).opts(**style)
+        Selection1D(source=points, index=positions).add_subscriber(partial(self._on_index, generation))
+        for stream in (Lasso(source=points), BoundsXY(source=points)):
+            stream.add_subscriber(partial(self._on_geometry, generation))
+        PlotReset(source=points).add_subscriber(partial(self._on_reset, generation))
+        layers = self._overlays() + [points]
+        self.space_plot.object = reduce(lambda a, b: a * b, layers).opts(
             legend_position="right", legend_opts={"click_policy": "hide"},
             responsive=True, min_height=620)
-        self.espaco_status.object = self._status_espaco()
+        self.space_status.object = self._space_status()
 
-    # ------------------------------------------------ aba 1: footprints
+    # ------------------------------------------------------ tab 1: footprints
     def _refresh_footprints(self):
-        r = self.estado.resultado
-        algo, tipo = self.w_fp_algo.value, self.w_fp_tipo.value
-        dados = self._dados[["Row", "z_1", "z_2"]].assign(opacidade=self._alphas())
+        r = self.state.result
+        algo, kind = self.w_fp_algo.value, self.w_fp_type.value
+        data = self._data[["Row", "z_1", "z_2"]].assign(opacity=self._alphas())
         hover = HoverTool(tooltips=[("Row", "@Row")])
-        camadas = [hv.Points(dados, ["z_1", "z_2"], ["Row", "opacidade"]).opts(
-            color=COR_BASE, alpha="opacidade", size=6, line_color=None, tools=[hover],
+        layers = [hv.Points(data, ["z_1", "z_2"], ["Row", "opacity"]).opts(
+            color=BASE_COLOR, alpha="opacity", size=6, line_color=None, tools=[hover],
             show_legend=False)]
-        avisos = []
-        algos = r.algos if algo == TODOS else [algo]
+        warns = []
+        algos = r.algos if algo == ALL else [algo]
         for a in algos:
-            fp = r.footprints[(a, tipo)]
-            cor = PALETA_ALGOS[r.algos.index(a) % len(PALETA_ALGOS)]
-            if fp.status == VAZIA:
-                avisos.append(f"- **{a} / {tipo}**: footprint vazia, nada a desenhar.")
+            fp = r.footprints[(a, kind)]
+            color = ALGO_PALETTE[r.algos.index(a) % len(ALGO_PALETTE)]
+            if fp.status == EMPTY:
+                warns.append(f"- **{a} / {kind}**: empty footprint, nothing to draw.")
                 continue
-            if fp.status == SUSPEITA:
-                avisos.append(f"- **{a} / {tipo}**: suspeita, pureza {fp.pureza:.3f} < "
-                              f"trace.purity {r.pi}; desenhada tracejada.")
-            camadas.append(poligonos_hv(fp, cor, a, 0.25, fp.status == SUSPEITA))
-        self.fp_aviso.object = ("Footprints suspeitas/vazias:\n" + "\n".join(avisos) if avisos
-                                else "Nenhuma footprint suspeita ou vazia para esta escolha.")
-        self.fp_plot.object = reduce(lambda a, b: a * b, camadas).opts(
+            if fp.status == SUSPECT:
+                warns.append(f"- **{a} / {kind}**: suspect, purity {fp.purity:.3f} < "
+                             f"trace.purity {r.pi}; drawn dashed.")
+            layers.append(footprint_polygons(fp, color, a, 0.25, fp.status == SUSPECT))
+        self.fp_warning.object = ("Suspect/empty footprints:\n" + "\n".join(warns) if warns
+                                  else "No suspect or empty footprint for this choice.")
+        self.fp_plot.object = reduce(lambda a, b: a * b, layers).opts(
             responsive=True, min_height=460, show_grid=True, legend_position="right",
-            legend_opts={"click_policy": "hide"}, title=f"Footprints {tipo} — {algo}")
-        tabela = r.footprint_performance.copy().round(4)
-        tabela["status"] = [r.footprints[(a, tipo)].status if (a, tipo) in r.footprints else "?"
-                            for a in tabela.index]
-        self.fp_tabela.value = tabela
-        self.fp_status.object = self._texto_selecao({
-            "sem": "Use o lasso na aba Instance Space para destacar um subconjunto no mapa.",
-            "vazia": "Nenhum ponto destacado no mapa.",
-            "com": "Destacadas no mapa; as demais aparecem apagadas.",
+            legend_opts={"click_policy": "hide"}, title=f"Footprints {kind} — {algo}")
+        table = r.footprint_performance.copy().round(4)
+        table["status"] = [r.footprints[(a, kind)].status if (a, kind) in r.footprints else "?"
+                           for a in table.index]
+        # "Area_Good_Normalized" -> "Area Good Normalized": the headers can wrap
+        self.fp_table.value = table.rename(columns=lambda c: c.replace("_", " "))
+        self.fp_status.object = self._selection_text({
+            "none": "Use the lasso in the Instance Space tab to highlight a subset on the map.",
+            "empty": "No point highlighted on the map.",
+            "some": "Highlighted on the map; the others appear faded.",
         })
 
-    # ------------------------------------- aba 2: algorithm selection
-    def _dados_selecao_algo(self):
-        """Uma linha por instancia: recomendado (selection0, 'nenhum'), melhor
-        observado, concordancia, pr0_sub do recomendado e se ele e bom."""
-        r = self.estado.resultado
-        rows = self._dados["Row"]
+    # --------------------------------------------- tab 2: algorithm selection
+    def _algo_selection_data(self):
+        """One row per instance: recommended (selection0, 'none'), best observed
+        (or 'tie'), whether the recommended algorithm is good, its pr0_sub."""
+        r = self.state.result
+        rows = self._data["Row"]
         rec = r.pythia_selection["selection0"].reindex(rows.to_numpy()).to_numpy(dtype=object)
-        melhor = self._dados["best_algo"].to_numpy(dtype=object)
-        tem = np.array([v is not None and not (isinstance(v, float) and np.isnan(v)) for v in rec])
-        rec_txt = np.where(tem, rec, NENHUM).astype(str)
-        concorda = np.where(~tem, SEM_REC, np.where(rec == melhor, IGUAL, DIFERENTE))
+        has = np.array([not _is_missing(v) for v in rec])
+        rec_txt = np.where(has, rec, NONE).astype(str)
         pr0 = r.pythia_proba.reindex(rows.to_numpy())
         pr0_rec = np.full(len(rows), np.nan)
-        rec_bom = np.zeros(len(rows), dtype=bool)
-        for i, a in enumerate(r.algos):
+        rec_good = np.zeros(len(rows), dtype=bool)
+        for a in r.algos:
             m = rec_txt == a
             pr0_rec[m] = pr0[a].to_numpy(dtype=float)[m]
-            rec_bom[m] = self._dados[f"algo_{a}_bin"].to_numpy(dtype=bool)[m]
+            rec_good[m] = self._data[f"algo_{a}_bin"].to_numpy(dtype=bool)[m]
+        goodness = np.where(~has, NO_REC, np.where(rec_good, REC_GOOD, REC_BAD))
+        best = self._data["best_algo_or_tie"].map(lambda v: NONE if _is_missing(v) else str(v))
         return pd.DataFrame({
-            "Row": rows.to_numpy(), "z_1": self._dados["z_1"].to_numpy(),
-            "z_2": self._dados["z_2"].to_numpy(), "recomendado": rec_txt,
-            "melhor": pd.Series(melhor).fillna(NENHUM).astype(str).to_numpy(),
-            "concordancia": concorda, "pr0_rec": pr0_rec,
-            "rec_bom": np.where(tem, np.where(rec_bom, "sim", "não"), "—"),
+            "Row": rows.to_numpy(), "z_1": self._data["z_1"].to_numpy(),
+            "z_2": self._data["z_2"].to_numpy(), "recommended": rec_txt,
+            "best": best.to_numpy(), "goodness": goodness, "pr0_rec": pr0_rec,
+            "rec_good": np.where(has, np.where(rec_good, "yes", "no"), "—"),
         })
 
-    def _refresh_selecao_algo(self):
-        r = self.estado.resultado
-        if r is None or self._dados is None:
+    def _refresh_algo_selection(self):
+        r = self.state.result
+        if r is None or self._data is None:
             return
-        d = self._dados_selecao_algo()
+        d = self._algo_selection_data()
         n = len(d)
-        d["opacidade"] = self._alphas()
-        modo = self.w_as_cor.value
-        self.w_as_algo.visible = modo == AS_PR0
-        contagem = d["recomendado"].value_counts()
+        d["opacity"] = self._alphas()
+        mode = self.w_as_color.value
+        self.w_as_algo.visible = mode == AS_PR0
+        counts = d["recommended"].value_counts()
 
-        # aviso de seletor quase trivial (so algoritmos, nao 'nenhum')
-        algos_rec = contagem.drop(NENHUM, errors="ignore")
-        avisos = []
-        if len(algos_rec) and algos_rec.iloc[0] / n > SELETOR_TRIVIAL:
-            a, k = algos_rec.index[0], int(algos_rec.iloc[0])
-            avisos.append(pn.pane.Alert(
-                f"⚠ **Seletor quase trivial:** o PYTHIA recomenda **{a}** para {k} de {n} "
-                f"instâncias ({_pct(k / n)}, acima de {_pct(SELETOR_TRIVIAL)}). Recomendar "
-                f"sempre {a} daria quase o mesmo resultado: o mapa diz pouco sobre regiões "
-                "em que cada algoritmo é melhor.", alert_type="warning",
+        # nearly trivial selector (algorithms only, not 'none')
+        rec_algos = counts.drop(NONE, errors="ignore")
+        warns = []
+        if len(rec_algos) and rec_algos.iloc[0] / n > TRIVIAL_SELECTOR:
+            a, k = rec_algos.index[0], int(rec_algos.iloc[0])
+            warns.append(pn.pane.Alert(
+                f"⚠ **Nearly trivial selector:** PYTHIA recommends **{a}** for {k} of {n} "
+                f"instances ({_pct(k / n)}, above {_pct(TRIVIAL_SELECTOR)}). Always "
+                f"recommending {a} would give almost the same result: the map says little "
+                "about regions where each algorithm is better.", alert_type="warning",
                 css_classes=["as-trivial"], sizing_mode="stretch_width"))
-        self.as_aviso.objects = avisos
+        self.as_warning.objects = warns
 
-        # resumo da concordancia
-        c = d["concordancia"].value_counts()
-        dif = d["concordancia"] == DIFERENTE
-        dif_bom = int((dif & (d["rec_bom"] == "sim")).sum())
-        self.as_resumo.object = (
-            f"Recomendado = melhor observado em **{int(c.get(IGUAL, 0))}** de {n} instâncias; "
-            f"diferente em **{int(c.get(DIFERENTE, 0))}** (em {dif_bom} delas o recomendado "
-            f"também é bom); sem recomendação em **{int(c.get(SEM_REC, 0))}**.  \n"
-            "_Probabilidades nesta aba: **pr0_sub**, P(ruim) fora da amostra (validação cruzada "
-            "do PYTHIA)._")
+        c = d["goodness"].value_counts()
+        ties = int((self._data["n_tied_best"] > 1).sum())
+        self.as_summary.object = (
+            f"The recommended algorithm is good for the instance in **{int(c.get(REC_GOOD, 0))}** "
+            f"of {n} instances, bad in **{int(c.get(REC_BAD, 0))}**; no recommendation in "
+            f"**{int(c.get(NO_REC, 0))}**. Ties for the best observed value: **{ties}** instances "
+            "(shown as *tie*; portfolio.csv breaks them at random).  \n"
+            "_Probabilities in this tab: **pr0_sub**, P(bad) out of sample (PYTHIA "
+            "cross-validation)._")
 
-        # mapa
-        cores_algo = {a: PALETA_ALGOS[i % len(PALETA_ALGOS)] for i, a in enumerate(r.algos)}
+        # map
+        algo_colors = {a: ALGO_PALETTE[i % len(ALGO_PALETTE)] for i, a in enumerate(r.algos)}
         hover = HoverTool(tooltips=[
-            ("Row", "@Row"), ("recomendado", "@recomendado"), ("melhor observado", "@melhor"),
-            ("recomendado é bom", "@rec_bom"), ("pr0_sub do recomendado", "@pr0_rec{0.000}")])
-        vdims = ["Row", "recomendado", "melhor", "rec_bom", "pr0_rec", "opacidade"]
-        estilo = dict(alpha="opacidade", size=6, line_color=None, tools=[hover],
-                      responsive=True, min_height=520, show_grid=True)
-        if modo == AS_PR0:
+            ("Row", "@Row"), ("recommended", "@recommended"), ("best observed", "@best"),
+            ("recommended is good", "@rec_good"), ("pr0_sub of the recommended", "@pr0_rec{0.000}")])
+        vdims = ["Row", "recommended", "best", "rec_good", "pr0_rec", "opacity"]
+        style = dict(alpha="opacity", size=6, line_color=None, tools=[hover],
+                     responsive=True, min_height=520, show_grid=True)
+        if mode == AS_PR0:
             a = self.w_as_algo.value
-            d["cor_valor"] = r.pythia_proba[a].reindex(d["Row"].to_numpy()).to_numpy(dtype=float)
-            rotulo = f"pr0_sub {a}: P(ruim) fora da amostra"
-            estilo.update(color="cor_valor", cmap="RdYlGn_r", clim=(0, 1), colorbar=True,
-                          show_legend=False, colorbar_opts={"title": "pr0_sub"})
-            hover.tooltips = hover.tooltips + [(f"pr0_sub {a}", "@cor_valor{0.000}")]
-            titulo = f"pr0_sub de {a} (P(ruim) fora da amostra); verde = provável bom"
+            d["color_value"] = r.pythia_proba[a].reindex(d["Row"].to_numpy()).to_numpy(dtype=float)
+            label = f"pr0_sub {a}: P(bad) out of sample"
+            style.update(color="color_value", cmap="RdYlGn_r", clim=(0, 1), colorbar=True,
+                         show_legend=False, colorbar_opts={"title": "pr0_sub"})
+            hover.tooltips = hover.tooltips + [(f"pr0_sub {a}", "@color_value{0.000}")]
+            title = f"pr0_sub of {a} (P(bad) out of sample); green = likely good"
         else:
-            if modo == AS_CONCORDANCIA:
-                col, cores = "concordancia", CORES_CONCORDANCIA
-                titulo = "Recomendado (selection0) × melhor observado"
+            if mode == AS_GOODNESS:
+                col, colors = "goodness", GOODNESS_COLORS
+                title = "Recommended algorithm (selection0): good or bad for the instance"
             else:
-                col, cores = "recomendado", {**cores_algo, NENHUM: COR_NENHUM}
-                titulo = "Algoritmo recomendado pelo PYTHIA (selection0)"
-            # legenda e ordem de desenho: da categoria mais frequente para a
-            # mais rara (as raras ficam por cima e continuam visiveis)
+                col, colors = "recommended", {**algo_colors, NONE: NONE_COLOR}
+                title = "Recommended algorithm (PYTHIA selection0)"
+            # legend and drawing order: from the most frequent category to the
+            # rarest (the rare ones stay on top and remain visible)
             cont = d[col].value_counts()
-            ordem = list(cont.index)
-            rot = {k: f"{k} ({int(cont[k])})" for k in ordem}
-            d["cor_valor"] = d[col].map(rot)
-            d = d.iloc[np.argsort(d[col].map({k: i for i, k in enumerate(ordem)}).to_numpy(),
+            order = list(cont.index)
+            lab = {k: f"{k} ({int(cont[k])})" for k in order}
+            d["color_value"] = d[col].map(lab)
+            d = d.iloc[np.argsort(d[col].map({k: i for i, k in enumerate(order)}).to_numpy(),
                                   kind="stable")]
-            cmap = {rot[k]: cores.get(k, COR_NENHUM) for k in ordem}
-            rotulo = "cor"
-            estilo.update(color="cor_valor", cmap=cmap, show_legend=True)
-        pontos = hv.Points(d, ["z_1", "z_2"], [hv.Dimension("cor_valor", label=rotulo), *vdims]
-                           ).opts(**estilo)
-        camadas = [pontos]
+            cmap = {lab[k]: colors.get(k, NONE_COLOR) for k in order}
+            label = "color"
+            style.update(color="color_value", cmap=cmap, show_legend=True)
+        points = hv.Points(d, ["z_1", "z_2"], [hv.Dimension("color_value", label=label), *vdims]
+                           ).opts(**style)
+        layers = [points]
         if self.w_as_cloister.value:
-            camadas += cloister_hv(r)
-        self.as_plot.object = reduce(lambda a, b: a * b, camadas).opts(
-            responsive=True, min_height=520, legend_position="right", title=titulo,
-            legend_opts={"click_policy": "hide"}, **SEM_ROLAGEM)
-        self.as_status.object = self._texto_selecao({
-            "sem": "Use o lasso na aba Instance Space para destacar um subconjunto no mapa.",
-            "vazia": "Nenhum ponto destacado no mapa.",
-            "com": "Destacadas no mapa; as demais aparecem apagadas. " + self._resumo_sel_algo(d),
+            layers += cloister_hv(r)
+        self.as_plot.object = reduce(lambda a, b: a * b, layers).opts(
+            responsive=True, min_height=520, legend_position="right", title=title,
+            legend_opts={"click_policy": "hide"}, **NO_SCROLL_ZOOM)
+        self.as_status.object = self._selection_text({
+            "none": "Use the lasso in the Instance Space tab to highlight a subset on the map.",
+            "empty": "No point highlighted on the map.",
+            "some": "Highlighted on the map; the others appear faded. " + self._selection_summary(d),
         })
-        self._refresh_svm_table(r, contagem)
-        self._refresh_confusao(r)
+        self._refresh_svm_table(r, counts)
+        self._refresh_confusion(r)
 
-    def _resumo_sel_algo(self, d):
-        m = self._mascara()
+    def _selection_summary(self, d):
+        m = self._mask()
         if m is None or not m.any():
             return ""
-        c = d.loc[m, "concordancia"].value_counts()
-        top = d.loc[m, "recomendado"].value_counts()
-        return (f"Na seleção: mais recomendado **{top.index[0]}** ({int(top.iloc[0])}); igual ao "
-                f"melhor observado {int(c.get(IGUAL, 0))}, diferente {int(c.get(DIFERENTE, 0))}, "
-                f"sem recomendação {int(c.get(SEM_REC, 0))}.")
+        c = d.loc[m, "goodness"].value_counts()
+        top = d.loc[m, "recommended"].value_counts()
+        return (f"In the selection: most recommended **{top.index[0]}** ({int(top.iloc[0])}); "
+                f"recommended good {int(c.get(REC_GOOD, 0))}, bad {int(c.get(REC_BAD, 0))}, "
+                f"no recommendation {int(c.get(NO_REC, 0))}.")
 
-    def _refresh_svm_table(self, r, contagem):
+    def _refresh_svm_table(self, r, counts):
         tab = r.svm_table
-        linhas = []
-        for nome in tab.index:
-            linha = {"algoritmo": str(nome)}
-            for col, curto in COLUNAS_SVM:
-                v = tab.loc[nome, col] if col in tab.columns else np.nan
-                linha[curto] = "—" if pd.isna(v) else (f"{v:.1f}" if curto.endswith("%") else f"{v:.3f}")
-            if nome in r.algos:
-                linha["recomendado em"] = int(contagem.get(nome, 0))
-            elif nome == "Selector":
-                linha["recomendado em"] = int(contagem.drop(NENHUM, errors="ignore").sum())
+        rows = []
+        for name in tab.index:
+            row = {"algorithm": str(name)}
+            for col, short in SVM_COLUMNS:
+                v = tab.loc[name, col] if col in tab.columns else np.nan
+                row[short] = "—" if pd.isna(v) else (f"{v:.1f}" if short.endswith("%") else f"{v:.3f}")
+            if name in r.algos:
+                row["recommended in"] = int(counts.get(name, 0))
+            elif name == "Selector":
+                row["recommended in"] = int(counts.drop(NONE, errors="ignore").sum())
             else:
-                linha["recomendado em"] = "—"
-            linhas.append(linha)
-        df = pd.DataFrame(linhas)
-        ordem = ["algoritmo", "acurácia CV %", "precisão CV %", "recall CV %",
-                 "recomendado em", "P(bom)", "desemp. médio", "desemp. prev. boas"]
-        self.as_tabela.value = df[ordem].astype(str)
-        self.as_tabela.height = 40 + 31 * len(df)
-        self.as_nota_tabela.object = (
-            "- **acurácia, precisão e recall**: validação cruzada de cada SVM (positivo = bom).\n"
-            "- **recomendado em**: instâncias em que o algoritmo é o selection0.\n"
-            "- **P(bom)**: fração de instâncias em que o algoritmo é bom (Selector: com "
-            "selection1, que troca *nenhum* pelo algoritmo de maior P(bom)).\n"
-            "- **desemp. prev. boas**: média de `algo_*` onde o SVM prevê bom (Selector: a do "
-            "recomendado).\n"
-            "- **Oracle**: sempre o melhor observado de cada instância.\n"
-            "- **Selector**: o recomendado. Precisão = fração das instâncias recomendadas em "
-            "que o recomendado é bom. O recall segue a definição do PYTHIA/MATLAB, que conta "
-            "como perda toda instância com algum algoritmo bom não recomendado; por isso fica "
-            "perto de 50% quando há vários algoritmos bons por instância.")
+                row["recommended in"] = "—"
+            rows.append(row)
+        df = pd.DataFrame(rows)
+        shorts = [short for _, short in SVM_COLUMNS]
+        order = ["algorithm", *shorts[:3], "recommended in", *shorts[3:]]
+        self.as_table.value = df[order].astype(str)
+        self.as_table.height = 40 + 31 * len(df)
+        self.as_table_note.object = (
+            "- **accuracy, precision and recall**: cross-validation of each SVM (positive = good).\n"
+            "- **recommended in**: instances where the algorithm is selection0.\n"
+            "- **P(good)**: fraction of instances where the algorithm is good (Selector: with "
+            "selection1, which replaces *none* by the algorithm with the highest P(good)).\n"
+            "- **mean perf. pred. good**: mean `algo_*` where the SVM predicts good "
+            "(Selector: that of the recommended algorithm).\n"
+            "- **Oracle**: always the best observed algorithm of each instance.\n"
+            "- **Selector**: the recommended algorithm. Precision = fraction of the instances with "
+            "a recommendation where the recommended algorithm is good. Recall follows the "
+            "PYTHIA/MATLAB definition, which counts as a miss every instance with some good "
+            "algorithm that was not recommended; so it stays close to 50% when there are "
+            "several good algorithms per instance.")
 
-    def _refresh_confusao(self, r):
+    def _refresh_confusion(self, r):
         conf = r.pythia_confusion
-        paineis = []
+        panels = []
         for a in r.algos:
             if a not in conf.index:
                 continue
             tn, fp, fn, tp = (int(conf.loc[a, k]) for k in ("tn", "fp", "fn", "tp"))
-            celulas = []
-            for obs, prev, k, nome in (("bom", "bom", tp, "VP"), ("bom", "ruim", fn, "FN"),
-                                       ("ruim", "bom", fp, "FP"), ("ruim", "ruim", tn, "VN")):
-                total = tp + fn if obs == "bom" else fp + tn
+            cells = []
+            for obs, pred, k, name in (("good", "good", tp, "TP"), ("good", "bad", fn, "FN"),
+                                       ("bad", "good", fp, "FP"), ("bad", "bad", tn, "TN")):
+                total = tp + fn if obs == "good" else fp + tn
                 frac = k / total if total else 0.0
-                celulas.append({"previsto": prev, "observado": obs, "fracao": frac, "n": k,
-                                "texto": f"{nome} {k}\n{_pct(frac)}" if total else f"{nome} 0",
-                                "cor_texto": "white" if frac >= 0.6 else "black"})
-            c = pd.DataFrame(celulas)
+                cells.append({"predicted": pred, "observed": obs, "fraction": frac, "n": k,
+                              "text": f"{name} {k}\n{_pct(frac)}" if total else f"{name} 0",
+                              "text_color": "white" if frac >= 0.6 else "black"})
+            c = pd.DataFrame(cells)
             acc = (tp + tn) / max(tp + tn + fp + fn, 1)
-            mapa = hv.HeatMap(c, ["previsto", "observado"], ["fracao", "n"]).opts(
+            heat = hv.HeatMap(c, ["predicted", "observed"], ["fraction", "n"]).opts(
                 cmap="Blues", clim=(0, 1), colorbar=False, tools=["hover"], width=230,
-                height=190, xlabel="previsto (CV)", ylabel="observado", toolbar=None,
+                height=190, xlabel="predicted (CV)", ylabel="observed", toolbar=None,
                 invert_yaxis=True, default_tools=[])
-            rotulos = hv.Labels(c, ["previsto", "observado"], ["texto", "cor_texto"]).opts(
-                text_font_size="11pt", text_color="cor_texto")
-            paineis.append(pn.Column(
-                pn.pane.Markdown(f"**{a}** · acurácia {_pct(acc)}", width=230, margin=(0, 10)),
-                pn.pane.HoloViews(mapa * rotulos, width=230, height=190),
-                css_classes=["as-confusao"], margin=(5, 5)))
-        self.as_confusao.objects = paineis or [pn.pane.Markdown("Sem matrizes de confusão.")]
-        self.as_nota_confusao.object = (
-            "Linhas = desempenho observado, colunas = previsão do SVM na validação cruzada. "
-            "Cor e porcentagem: fração dentro da linha (a diagonal escura indica acerto nas duas "
-            "classes). VP/FN/FP/VN: verdadeiro positivo, falso negativo, falso positivo, "
-            "verdadeiro negativo.")
+            labels = hv.Labels(c, ["predicted", "observed"], ["text", "text_color"]).opts(
+                text_font_size="11pt", text_color="text_color")
+            panels.append(pn.Column(
+                pn.pane.Markdown(f"**{a}** · accuracy {_pct(acc)}", width=230, margin=(0, 10)),
+                pn.pane.HoloViews(heat * labels, width=230, height=190),
+                css_classes=["as-confusion"], margin=(5, 5)))
+        self.as_confusion.objects = panels or [pn.pane.Markdown("No confusion matrices.")]
+        self.as_confusion_note.object = (
+            "Rows = observed performance, columns = the SVM's prediction in cross-validation. "
+            "Color and percentage: fraction within the row (a dark diagonal means both classes "
+            "are right). TP/FN/FP/TN: true positive, false negative, false positive, "
+            "true negative.")
 
-    # --------------------------------------------- aba 3: distribuicoes
-    def _series_dist(self, vals, grupo_col, mascara):
-        """[(rotulo, valores finitos, cor, parte)] por grupo; parte e True
-        (selecionadas), False (nao selecionadas) ou None (sem divisao)."""
+    # --------------------------------------------------- tab 3: distributions
+    def _dist_series(self, vals, group_col, mask):
+        """[(label, finite values, color, part)] per group; part is True
+        (selected), False (not selected) or None (no split)."""
         n = len(vals)
-        if grupo_col is None:
-            grupos = [("todas", np.ones(n, dtype=bool), COR_TODAS)]
+        if group_col is None:
+            groups = [("all", np.ones(n, dtype=bool), ALL_COLOR)]
         else:
-            g = self._valores_grupo(grupo_col).to_numpy()
-            grupos = [(c, g == c, PALETA_GRUPOS[i % len(PALETA_GRUPOS)])
+            g = self._group_values(group_col).to_numpy()
+            groups = [(c, g == c, GROUP_PALETTE[i % len(GROUP_PALETTE)])
                       for i, c in enumerate(sorted(set(g)))]
-        dividir = mascara is not None and bool(mascara.any())
+        split = mask is not None and bool(mask.any())
         series = []
-        for nome, idx, cor in grupos:
-            partes = ((True, "selecionadas"), (False, "não selecionadas")) if dividir else ((None, None),)
-            for parte, texto in partes:
-                m = idx if parte is None else idx & (mascara if parte else ~mascara)
+        for name, idx, color in groups:
+            parts = ((True, "selected"), (False, "not selected")) if split else ((None, None),)
+            for part, text in parts:
+                m = idx if part is None else idx & (mask if part else ~mask)
                 v = vals[m]
-                prefixo = nome if texto is None else (texto if grupo_col is None else f"{nome} · {texto}")
-                if grupo_col is None and parte is not None:
-                    cor = COR_SEL if parte else COR_TODAS
-                series.append((f"{prefixo} (n={int(m.sum())})", v[np.isfinite(v)], cor, parte))
-        return grupos, series
+                prefix = name if text is None else (text if group_col is None else f"{name} · {text}")
+                if group_col is None and part is not None:
+                    color = SEL_COLOR if part else ALL_COLOR
+                series.append((f"{prefix} (n={int(m.sum())})", v[np.isfinite(v)], color, part))
+        return groups, series
 
-    def _grafico_dist(self, var, grupo_col, tipo, mascara):
-        vals = self._dados[var].to_numpy(dtype=float)
-        titulo = f"{var}  (Todas n={len(vals)}"
-        titulo += f", Selecionadas n={int(mascara.sum())})" if mascara is not None else ")"
-        if grupo_col is not None:
-            titulo += f" — por {grupo_col}"
-        grupos, series = self._series_dist(vals, grupo_col, mascara)
-        comum = dict(title=titulo, responsive=True, show_grid=True, **SEM_ROLAGEM)
+    def _dist_plot(self, var, group_col, kind, mask):
+        vals = self._data[var].to_numpy(dtype=float)
+        title = f"{var}  (All n={len(vals)}"
+        title += f", Selected n={int(mask.sum())})" if mask is not None else ")"
+        if group_col is not None:
+            title += f" — by {group_col}"
+        groups, series = self._dist_series(vals, group_col, mask)
+        common = dict(title=title, responsive=True, show_grid=True, **NO_SCROLL_ZOOM)
         fin = vals[np.isfinite(vals)]
         if fin.size == 0:
-            return hv.Curve([]).opts(title=f"{var}: sem valores finitos")
-        if tipo == "violino":
-            dividir = mascara is not None and bool(mascara.any())
-            linhas = []
-            for nome, idx, _ in grupos:
-                rotulo = f"{nome} (n={int(idx.sum())}"
-                rotulo += f"; {int((idx & mascara).sum())} sel.)" if dividir else ")"
-                for parte in ((True, False) if dividir else (None,)):
-                    m = idx if parte is None else idx & (mascara if parte else ~mascara)
+            return hv.Curve([]).opts(title=f"{var}: no finite values")
+        if kind == "violin":
+            split = mask is not None and bool(mask.any())
+            frames = []
+            for name, idx, _ in groups:
+                label = f"{name} (n={int(idx.sum())}"
+                label += f"; {int((idx & mask).sum())} sel.)" if split else ")"
+                for part in ((True, False) if split else (None,)):
+                    m = idx if part is None else idx & (mask if part else ~mask)
                     v = vals[m]
                     v = v[np.isfinite(v)]
-                    texto = "todas" if parte is None else ("selecionadas" if parte else "não selecionadas")
-                    linhas.append(pd.DataFrame({"grupo": rotulo, "parte": texto, "valor": v}))
-            dfl = pd.concat(linhas, ignore_index=True)
-            if dividir:
-                return hv.Violin(dfl, ["grupo", "parte"], "valor").opts(
-                    split="parte", violin_fill_color="parte",
-                    cmap={"selecionadas": COR_SEL, "não selecionadas": COR_NAO_SEL},
-                    height=300, ylabel=var, xlabel="", **comum)
-            cores = {r: (COR_TODAS if grupo_col is None else PALETA_GRUPOS[i % len(PALETA_GRUPOS)])
-                     for i, r in enumerate(dict.fromkeys(dfl["grupo"]))}
-            return hv.Violin(dfl, ["grupo"], "valor").opts(
-                violin_fill_color="grupo", cmap=cores, height=300, ylabel=var, xlabel="", **comum)
-        camadas = []
-        if tipo == "histograma":
+                    text = "all" if part is None else ("selected" if part else "not selected")
+                    frames.append(pd.DataFrame({"group": label, "part": text, "value": v}))
+            dfl = pd.concat(frames, ignore_index=True)
+            if split:
+                return hv.Violin(dfl, ["group", "part"], "value").opts(
+                    split="part", violin_fill_color="part",
+                    cmap={"selected": SEL_COLOR, "not selected": NOT_SEL_COLOR},
+                    height=300, ylabel=var, xlabel="", **common)
+            colors = {g: (ALL_COLOR if group_col is None else GROUP_PALETTE[i % len(GROUP_PALETTE)])
+                      for i, g in enumerate(dict.fromkeys(dfl["group"]))}
+            return hv.Violin(dfl, ["group"], "value").opts(
+                violin_fill_color="group", cmap=colors, height=300, ylabel=var, xlabel="", **common)
+        layers = []
+        if kind == "histogram":
             edges = np.histogram_bin_edges(fin, bins=25)
-            for rotulo, v, cor, parte in series:
+            for label, v, color, part in series:
                 if not v.size:
                     continue
                 dens, _ = np.histogram(v, bins=edges, density=True)
-                camadas.append(hv.Histogram((edges, dens), label=rotulo).opts(
-                    fill_color=cor, line_color=cor, line_alpha=0.6,
-                    fill_alpha={True: 0.6, False: 0.15, None: 0.4}[parte],
-                    line_dash="dashed" if parte is False else "solid"))
-            ylabel = "densidade"
-        else:  # densidade (KDE)
-            for rotulo, v, cor, parte in series:
+                layers.append(hv.Histogram((edges, dens), label=label).opts(
+                    fill_color=color, line_color=color, line_alpha=0.6,
+                    fill_alpha={True: 0.6, False: 0.15, None: 0.4}[part],
+                    line_dash="dashed" if part is False else "solid"))
+            ylabel = "density"
+        else:  # density (KDE)
+            for label, v, color, part in series:
                 if v.size < 2:
                     continue
-                camadas.append(hv.Distribution(v, label=rotulo).opts(
-                    fill_color=cor, line_color=cor, line_width=2,
-                    fill_alpha={True: 0.4, False: 0.05, None: 0.25}[parte],
-                    line_dash="dashed" if parte is False else "solid"))
-            ylabel = "densidade (KDE)"
-        if not camadas:
-            return hv.Curve([]).opts(title=f"{var}: nenhum grupo com valores suficientes")
-        return hv.Overlay(camadas).opts(height=260, xlabel=var, ylabel=ylabel,
-                                        legend_position="right", **comum)
+                layers.append(hv.Distribution(v, label=label).opts(
+                    fill_color=color, line_color=color, line_width=2,
+                    fill_alpha={True: 0.4, False: 0.05, None: 0.25}[part],
+                    line_dash="dashed" if part is False else "solid"))
+            ylabel = "density (KDE)"
+        if not layers:
+            return hv.Curve([]).opts(title=f"{var}: no group with enough values")
+        return hv.Overlay(layers).opts(height=260, xlabel=var, ylabel=ylabel,
+                                       legend_position="right", **common)
 
-    def _refresh_distribuicoes(self):
-        variaveis = list(self.w_dist_vars.value)
-        mascara = self._mascara()
-        grupo = self.w_dist_grupo.value
-        grupo_col = None if grupo == SEM_GRUPO or grupo not in self._dados.columns else grupo
-        tipo = self.w_dist_tipo.value
-        cores = (" Nos violinos, vermelho = selecionadas e cinza = não selecionadas."
-                 if tipo == "violino" else " Linha tracejada = não selecionadas.")
-        self.dist_status.object = self._texto_selecao({
-            "sem": "Só os grupos aparecem. Use o lasso na aba Instance Space para comparar.",
-            "vazia": "Só os grupos aparecem (Selecionadas n=0).",
-            "com": "Cada grupo aparece dividido em selecionadas e não selecionadas." + cores,
+    def _refresh_distributions(self):
+        variables = list(self.w_dist_vars.value)
+        mask = self._mask()
+        group = self.w_dist_group.value
+        group_col = None if group == NO_GROUP or group not in self._data.columns else group
+        kind = self.w_dist_type.value
+        colors = (" In the violins, red = selected and gray = not selected."
+                  if kind == "violin" else " Dashed line = not selected.")
+        self.dist_status.object = self._selection_text({
+            "none": "Only the groups are shown. Use the lasso in the Instance Space tab to compare.",
+            "empty": "Only the groups are shown (Selected n=0).",
+            "some": "Each group is split into selected and not selected." + colors,
         })
-        if not variaveis:
-            self.dist_plots.objects = [pn.pane.Markdown("Escolha ao menos uma variável na barra lateral.")]
+        if not variables:
+            self.dist_plots.objects = [pn.pane.Markdown("Choose at least one variable in the sidebar.")]
             return
-        if len(variaveis) > MAX_DIST_VARS:
+        if len(variables) > MAX_DIST_VARS:
             self.dist_plots.objects = [pn.pane.Markdown(
-                f"**{len(variaveis)} variáveis escolhidas.** O limite é {MAX_DIST_VARS} por vez.")]
+                f"**{len(variables)} variables chosen.** The limit is {MAX_DIST_VARS} at a time.")]
             return
         self.dist_plots.objects = [
-            pn.pane.HoloViews(self._grafico_dist(v, grupo_col, tipo, mascara),
+            pn.pane.HoloViews(self._dist_plot(v, group_col, kind, mask),
                               sizing_mode="stretch_width")
-            for v in variaveis
+            for v in variables
         ]
 
-    # ---------------------------------------------------- aba 4: features
+    # -------------------------------------------------------- tab 4: features
     def _refresh_features(self):
-        r = self.estado.resultado
-        tabela = r.features_table()
-        n = tabela["status"].value_counts()
-        partes = [f"**{len(tabela)} features recebidas**: {n.get('kept', 0)} no PILOT"]
-        for status, texto in (("dropped_degenerate", "degeneradas"),
-                              ("dropped_correlation", "sem correlação"),
-                              ("dropped_redundancy", "redundantes")):
+        r = self.state.result
+        table = r.features_table()
+        n = table["status"].value_counts()
+        parts = [f"**{len(table)} features received**: {n.get('kept', 0)} in PILOT"]
+        for status, text in (("dropped_degenerate", "degenerate"),
+                             ("dropped_correlation", "without correlation"),
+                             ("dropped_redundancy", "redundant")):
             if n.get(status, 0):
-                partes.append(f"{n[status]} {texto}")
-        resumo = ", ".join(partes) + "."
+                parts.append(f"{n[status]} {text}")
+        summary = ", ".join(parts) + "."
         if r.degenerate_report is None:
-            resumo += ("  \n_Sem degenerate_report.csv: a tabela mostra só o que o SIFTED fez "
-                       "com as features do metadata._")
-        self.feat_resumo.object = resumo
-        exibir = tabela.copy()
-        exibir["substituida_por"] = exibir["substituida_por"].fillna("")
-        exibir["algoritmo_rho"] = exibir["algoritmo_rho"].fillna("")
+            summary += ("  \n_No degenerate_report.csv: the table only shows what SIFTED did "
+                        "with the metadata features._")
+        self.feat_summary.object = summary
+        shown = table.copy()
+        shown["replaced_by"] = shown["replaced_by"].fillna("")
+        shown["rho_algorithm"] = shown["rho_algorithm"].fillna("")
         for col in ("max_abs_rho", "r2_pilot"):
-            exibir[col] = exibir[col].round(3)
-        exibir["pval"] = exibir["pval"].map(lambda p: "" if pd.isna(p) else f"{p:.2g}")
-        self.feat_tabela.value = exibir.rename(columns=COLUNAS_FEATURES)
-        self.feat_tabela.height = min(40 + 31 * len(exibir), 640)
+            shown[col] = shown[col].round(3)
+        shown["pval"] = shown["pval"].map(lambda p: "" if pd.isna(p) else f"{p:.2g}")
+        self.feat_table.value = shown.rename(columns=FEATURE_COLUMNS)
+        # the reason column wraps: the height follows the number of lines
+        lines = shown["reason"].fillna("").map(lambda s: max(1, -(-len(s) // REASON_CHARS_PER_LINE)))
+        self.feat_table.height = int(45 + sum(8 + 20 * k for k in lines))
 
         c = r.sifted_correlations
         if c.empty:
-            self.feat_heatmap.object = hv.Curve([]).opts(title="SIFTED sem correlações calculadas")
+            self.feat_heatmap.object = hv.Curve([]).opts(title="SIFTED without computed correlations")
         else:
-            mantidas = set(r.features)
-            ordem = [f for f in tabela["feature"] if f in set(c["feature"])]
+            kept = set(r.features)
+            order = [f for f in table["feature"] if f in set(c["feature"])]
             c = c.assign(
-                feature=c["feature"].map(lambda f: f"{f} ✓" if f in mantidas else f),
-                texto=c["rho"].map(lambda v: f"{v:.2f}"),
-                cor_texto=np.where(c["rho"].abs() >= 0.6, "white", "black"))
-            ordem = [f"{f} ✓" if f in mantidas else f for f in ordem]
-            c = c.set_index("feature").loc[ordem].reset_index()
-            mapa = hv.HeatMap(c, ["algorithm", "feature"], ["rho", "pval"]).opts(
+                feature=c["feature"].map(lambda f: f"{f} ✓" if f in kept else f),
+                text=c["rho"].map(lambda v: f"{v:.2f}"),
+                text_color=np.where(c["rho"].abs() >= 0.6, "white", "black"))
+            order = [f"{f} ✓" if f in kept else f for f in order]
+            c = c.set_index("feature").loc[order].reset_index()
+            heat = hv.HeatMap(c, ["algorithm", "feature"], ["rho", "pval"]).opts(
                 cmap="RdBu_r", clim=(-1, 1), colorbar=True, tools=["hover"], responsive=True,
-                height=90 + 26 * len(ordem), xlabel="algoritmo", ylabel="feature (✓ = no PILOT)",
-                invert_yaxis=True, title="rho de Pearson entre a feature processada e o desempenho",
-                **SEM_ROLAGEM)
-            rotulos = hv.Labels(c, ["algorithm", "feature"], ["texto", "cor_texto"]).opts(
-                text_font_size="8pt", text_color="cor_texto")
-            self.feat_heatmap.object = mapa * rotulos
+                height=90 + 26 * len(order), xlabel="algorithm", ylabel="feature (✓ = in PILOT)",
+                invert_yaxis=True, title="Pearson rho between the processed feature and the performance",
+                **NO_SCROLL_ZOOM)
+            labels = hv.Labels(c, ["algorithm", "feature"], ["text", "text_color"]).opts(
+                text_font_size="8pt", text_color="text_color")
+            self.feat_heatmap.object = heat * labels
 
         sil = r.sifted_silhouette
         if sil.empty:
-            self.feat_silhueta.objects = [pn.pane.Markdown(
-                "_O SIFTED não clusterizou (poucas features depois do filtro de correlação): "
-                "silhueta não calculada._")]
+            self.feat_silhouette.objects = [pn.pane.Markdown(
+                "_SIFTED did not cluster (few features after the correlation filter): "
+                "silhouette not computed._")]
             return
-        usado = sil.loc[sil["used"], "k"].tolist()
-        melhor = sil.loc[sil["best"], "k"].tolist()
-        camadas = [hv.Curve(sil, "k", "silhouette").opts(color=COR_BASE),
-                   hv.Scatter(sil, "k", "silhouette").opts(color=COR_BASE, size=7)]
-        partes = []
-        if usado:
-            camadas.append(hv.VLine(usado[0]).opts(color=COR_SEL, line_width=2))
-            partes.append(f"k usado = {usado[0]} (vermelho)")
-        if melhor:
-            camadas.append(hv.VLine(melhor[0]).opts(color="#2a9d8f", line_dash="dashed", line_width=2))
-            partes.append(f"maior silhueta: k = {melhor[0]} (tracejado)")
-        self.feat_silhueta.objects = [pn.pane.HoloViews(
-            reduce(lambda a, b: a * b, camadas).opts(
+        used = sil.loc[sil["used"], "k"].tolist()
+        best = sil.loc[sil["best"], "k"].tolist()
+        layers = [hv.Curve(sil, "k", "silhouette").opts(color=BASE_COLOR),
+                  hv.Scatter(sil, "k", "silhouette").opts(color=BASE_COLOR, size=7)]
+        parts = []
+        if used:
+            layers.append(hv.VLine(used[0]).opts(color=SEL_COLOR, line_width=2))
+            parts.append(f"k used = {used[0]} (red)")
+        if best:
+            layers.append(hv.VLine(best[0]).opts(color="#2a9d8f", line_dash="dashed", line_width=2))
+            parts.append(f"highest silhouette: k = {best[0]} (dashed)")
+        self.feat_silhouette.objects = [pn.pane.HoloViews(
+            reduce(lambda a, b: a * b, layers).opts(
                 responsive=True, height=260, show_grid=True, xlabel="k (clusters)",
-                ylabel="silhueta", title="; ".join(partes), **SEM_ROLAGEM),
+                ylabel="silhouette", title="; ".join(parts), **NO_SCROLL_ZOOM),
             sizing_mode="stretch_width")]
 
-    # ------------------------------------------------------ exportacao
-    def _tabela_exportacao(self, rotulos=None):
-        """Rotulo (instances), source, anotacoes, todas as features, algo_*, z e
-        derivadas; so as linhas de `rotulos` se dado."""
-        r = self.estado.resultado
+    # ---------------------------------------------------------------- export
+    def _export_table(self, labels=None):
+        """Label (instances), source, annotations, every feature, algo_*, z and
+        derived columns; only the rows of `labels` if given."""
+        r = self.state.result
         cols = (["Row"] + ([r.source_column] if r.source_column else []) + list(r.annotations)
                 + [f"feature_{f}" for f in r.features_all] + [f"algo_{a}" for a in r.algos]
-                + EXPORT_DERIVADAS)
-        dados = self._dados if rotulos is None else self._dados[self._dados["Row"].isin(rotulos)]
-        return dados[cols].rename(columns={"Row": "instances"})
+                + EXPORT_DERIVED)
+        data = self._data if labels is None else self._data[self._data["Row"].isin(labels)]
+        return data[cols].rename(columns={"Row": "instances"})
 
     @staticmethod
     def _csv(df):
         return io.BytesIO(df.to_csv(index=False).encode("utf-8"))
 
-    def _csv_todas(self):
-        return self._csv(self._tabela_exportacao())
+    def _csv_all(self):
+        return self._csv(self._export_table())
 
-    def _csv_selecao(self):
-        return self._csv(self._tabela_exportacao(self.estado.selecao or frozenset()))
+    def _csv_selection(self):
+        return self._csv(self._export_table(self.state.selection or frozenset()))
 
-    def _footprint_ativa(self):
-        """Footprint escolhida na aba Footprint Performance, ou None ('todos')."""
-        algo, tipo = self.w_fp_algo.value, self.w_fp_tipo.value
-        if algo == TODOS or self.estado.resultado is None:
+    def _active_footprint(self):
+        """Footprint chosen in the Footprint Performance tab, or None ('all')."""
+        algo, kind = self.w_fp_algo.value, self.w_fp_type.value
+        if algo == ALL or self.state.result is None:
             return None
-        return self.estado.resultado.footprints.get((algo, tipo))
+        return self.state.result.footprints.get((algo, kind))
 
     def _csv_footprint(self):
-        fp = self._footprint_ativa()
-        rotulos = [] if fp is None else self.estado.resultado.instancias_na_footprint(fp)
-        return self._csv(pd.DataFrame({"instances": rotulos}))
+        fp = self._active_footprint()
+        labels = [] if fp is None else self.state.result.instances_in_footprint(fp)
+        return self._csv(pd.DataFrame({"instances": labels}))
 
-    def _refresh_exportacao(self):
-        nome, sel = self._nome(self.estado.dataset), self.estado.selecao
-        self.w_exp_todas.filename = f"{nome}_instancias.csv"
-        self.w_exp_sel.filename = f"{nome}_selecao.csv"
+    def _refresh_export(self):
+        name, sel = self._name(self.state.dataset), self.state.selection
+        self.w_exp_all.filename = f"{name}_instances.csv"
+        self.w_exp_sel.filename = f"{name}_selection.csv"
         self.w_exp_sel.disabled = sel is None
-        self.w_exp_sel.label = "Exportar seleção" if sel is None else f"Exportar seleção ({len(sel)})"
-        fp = self._footprint_ativa()
-        algo, tipo = self.w_fp_algo.value, self.w_fp_tipo.value
-        self.w_exp_fp.disabled = fp is None or fp.status == VAZIA
-        self.w_exp_fp.filename = f"{nome}_footprint_{algo}_{tipo}.csv"
-        self.w_exp_fp.label = ("Exportar rótulos da footprint" if fp is None
-                               else f"Exportar rótulos da footprint {algo}/{tipo}")
-        self.exp_nota.object = (
-            "_Footprint ativa: a da aba Footprint Performance; escolha um algoritmo lá._"
-            if fp is None else (f"_Footprint {algo}/{tipo} vazia._" if fp.status == VAZIA else ""))
+        self.w_exp_sel.label = "Export selection" if sel is None else f"Export selection ({len(sel)})"
+        fp = self._active_footprint()
+        algo, kind = self.w_fp_algo.value, self.w_fp_type.value
+        self.w_exp_fp.disabled = fp is None or fp.status == EMPTY
+        self.w_exp_fp.filename = f"{name}_footprint_{algo}_{kind}.csv"
+        self.w_exp_fp.label = ("Export footprint labels" if fp is None
+                               else f"Export footprint labels {algo}/{kind}")
+        self.exp_note.object = (
+            "_Active footprint: the one in the Footprint Performance tab; choose an algorithm there._"
+            if fp is None else (f"_Footprint {algo}/{kind} is empty._" if fp.status == EMPTY else ""))
 
-    # --------------------------------------------- aba 5: data explorer
+    # --------------------------------------------------- tab 5: data explorer
     def _refresh_explorer(self):
-        if self._dados is None:
+        if self._data is None:
             return
-        dados = self._dados
-        x, y, col = self.w_ex_x.value, self.w_ex_y.value, self.estado.cor
-        if x is None or y is None or col not in self._catalogo:
+        data = self._data
+        x, y, col = self.w_ex_x.value, self.w_ex_y.value, self.state.color
+        if x is None or y is None or col not in self._catalog:
             return
-        rotulo, _, tipo = self._catalogo[col]
+        label, _, kind = self._catalog[col]
         q = (self.w_ex_query.value or "").strip()
-        erro = None
+        error = None
         if q:
             try:
-                filtrado = dados.query(q)
-            except Exception as exc:  # noqa: BLE001 -- entrada do usuario
-                erro, filtrado = f"{type(exc).__name__}: {exc}", dados
+                filtered = data.query(q)
+            except Exception as exc:  # noqa: BLE001 -- user input
+                error, filtered = f"{type(exc).__name__}: {exc}", data
         else:
-            filtrado = dados
-        if erro:
-            self.ex_filtro.object = f"**Query inválida — filtro ignorado.**  \n`{erro}`"
-            self._ex_filtradas = None
+            filtered = data
+        if error:
+            self.ex_filter.object = f"**Invalid query — filter ignored.**  \n`{error}`"
+            self._ex_filtered = None
         else:
-            self.ex_filtro.object = f"**{len(filtrado)} de {len(dados)} linhas** passam no filtro."
-            self._ex_filtradas = list(filtrado["Row"]) if q else None
-        self.w_ex_usar.disabled = self._ex_filtradas is None
+            self.ex_filter.object = f"**{len(filtered)} of {len(data)} rows** pass the filter."
+            self._ex_filtered = list(filtered["Row"]) if q else None
+        self.w_ex_use.disabled = self._ex_filtered is None
 
-        linhas = filtrado.index
-        mascara = self._mascara()
-        alpha = self._alphas()[linhas]
+        rows = filtered.index
+        mask = self._mask()
+        alpha = self._alphas()[rows]
         plot = pd.DataFrame({
-            "eixo_x": filtrado[x].to_numpy(dtype=float), "eixo_y": filtrado[y].to_numpy(dtype=float),
-            "cor_valor": self._valores_cor(col, linhas).to_numpy(), "Row": filtrado["Row"].to_numpy(),
-            "opacidade": alpha,
+            "x_value": filtered[x].to_numpy(dtype=float), "y_value": filtered[y].to_numpy(dtype=float),
+            "color_value": self._color_values(col, rows).to_numpy(), "Row": filtered["Row"].to_numpy(),
+            "opacity": alpha,
         })
-        hover = HoverTool(tooltips=[("Row", "@Row"), (x, "@eixo_x"), (y, "@eixo_y"), (rotulo, "@cor_valor")])
-        estilo = dict(color="cor_valor", alpha="opacidade", size=6, line_color=None, tools=[hover],
-                      responsive=True, min_height=460, show_grid=True, legend_position="right",
-                      title=f"{x} x {y} — cor: {rotulo}")
-        estilo.update(estilo_de_cor(plot["cor_valor"], tipo))
+        hover = HoverTool(tooltips=[("Row", "@Row"), (x, "@x_value"), (y, "@y_value"),
+                                    (label, "@color_value")])
+        style = dict(color="color_value", alpha="opacity", size=6, line_color=None, tools=[hover],
+                     responsive=True, min_height=460, show_grid=True, legend_position="right",
+                     title=f"{x} x {y} — color: {label}")
+        style.update(color_style(plot["color_value"], kind, self._fixed_colors(col)))
         self.ex_plot.object = hv.Points(
-            plot, [hv.Dimension("eixo_x", label=x), hv.Dimension("eixo_y", label=y)],
-            [hv.Dimension("cor_valor", label=rotulo), "Row", "opacidade"]).opts(**estilo)
+            plot, [hv.Dimension("x_value", label=x), hv.Dimension("y_value", label=y)],
+            [hv.Dimension("color_value", label=label), "Row", "opacity"]).opts(**style)
 
-        ids = [c for c, t in self.estado.resultado.annotations.items() if t == IDENTIFICADOR]
-        cols = list(dict.fromkeys(["Row", *ids, x, y, col, "best_algo", "best_algo_svm"]))
-        tabela = filtrado[cols].copy()
-        tabela.insert(1, "selecionada", False if mascara is None else mascara[linhas])
-        self.ex_tabela.value = tabela.round(4)
-        self.ex_titulo_tabela.object = f"### Linhas filtradas ({len(filtrado)})"
-        self.ex_status.object = self._texto_selecao({
-            "sem": "Todos os pontos com a mesma opacidade.",
-            "vazia": "Todos os pontos aparecem apagados.",
-            "com": "Destacadas no gráfico e marcadas na coluna *selecionada*.",
+        ids = [c for c, t in self.state.result.annotations.items() if t == IDENTIFIER]
+        cols = list(dict.fromkeys(["Row", *ids, x, y, col, "best_algo_or_tie", "n_tied_best",
+                                   "best_algo_svm"]))
+        table = filtered[cols].copy()
+        table.insert(1, "selected", False if mask is None else mask[rows])
+        self.ex_table.value = table.round(4)
+        self.ex_table_title.object = f"### Filtered rows ({len(filtered)})"
+        self.ex_status.object = self._selection_text({
+            "none": "All points with the same opacity.",
+            "empty": "All points appear faded.",
+            "some": "Highlighted in the plot and marked in the *selected* column.",
         })
 
-    # --------------------------------------------------------------- template
+    # -------------------------------------------------------------- template
     def render(self):
         self._doc = pn.state.curdoc
         return pn.template.FastListTemplate(
-            site="", title=TITULO, header=[self.cab, self.titulo_aba],
+            site="", title=TITLE, header=[self.header, self.tab_title],
             sidebar=[self.sidebar], main=[self.tabs], sidebar_width=CONTROL_WIDTH + 30,
             header_background="#0466C8", theme_toggle=False,
         )
 
 
-def make_app(root=PASTA_IS, runs=PASTA_RUNS):
-    """Fabrica usada por pn.serve: uma instancia por sessao do navegador."""
+def make_app(root=IS_DIR, runs=RUNS_DIR):
+    """Factory used by pn.serve: one instance per browser session."""
     return IsaApp(root, runs).render()
 
 
-def start(port=5006, show=True, threaded=False, root=PASTA_IS, runs=PASTA_RUNS):
-    """Sobe o servidor. Com threaded=True devolve a thread do servidor."""
+def start(port=5006, show=True, threaded=False, root=IS_DIR, runs=RUNS_DIR):
+    """Start the server. With threaded=True, return the server thread."""
     return pn.serve(
-        lambda: make_app(root, runs), port=port, show=show, title=TITULO,
+        lambda: make_app(root, runs), port=port, show=show, title=TITLE,
         websocket_origin=[f"localhost:{port}", f"127.0.0.1:{port}"], threaded=threaded,
     )
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Interface do espaco de instancias")
+    parser = argparse.ArgumentParser(description="Instance space interface")
     parser.add_argument("--port", type=int, default=5006)
-    parser.add_argument("--no-show", action="store_true", help="nao abre o navegador")
-    parser.add_argument("--root", default=str(PASTA_IS), help="pasta resultados/is")
-    parser.add_argument("--runs", default=str(PASTA_RUNS),
-                        help="pasta das execucoes disparadas pela interface")
+    parser.add_argument("--no-show", action="store_true", help="do not open the browser")
+    parser.add_argument("--root", default=str(IS_DIR), help="resultados/is folder")
+    parser.add_argument("--runs", default=str(RUNS_DIR),
+                        help="folder for the runs launched from the interface")
     args = parser.parse_args(argv)
     start(port=args.port, show=not args.no_show, root=Path(args.root), runs=Path(args.runs))
 

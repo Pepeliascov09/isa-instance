@@ -1,23 +1,23 @@
-"""Ponte entre a tabela por instancia do projeto e o pyispace (PILOT + TRACE).
+"""Bridge between the project's per-instance table and pyispace (PILOT + TRACE).
 
-Duas funcoes publicas:
+Two public functions:
 
-- ``to_isa_metadata``: converte ``resultados/table_<nome>.csv`` no formato que
-  ``pyispace.train_is`` espera: colunas ``feature_*`` e ``algo_*`` numericas e
-  indice ``instances`` com os rotulos "1".."n" em texto (o mesmo layout do
-  ``Workspace`` do pyhard). Leva junto ``row_original`` e as anotacoes
-  ``class``, ``ih`` e ``n_wrong``, que o pyispace ignora e o instancespace
-  (``isaspace.engine``) preserva como anotacoes. Com ``outdir``, grava o
-  metadata.csv e, ao lado, os arquivos auxiliares que o engine copia
+- ``to_isa_metadata``: converts ``resultados/table_<name>.csv`` into the format
+  ``pyispace.train_is`` expects: numeric ``feature_*`` and ``algo_*`` columns
+  and an ``instances`` index with the labels "1".."n" as text (the same layout
+  as pyhard's ``Workspace``). It carries ``row_original`` and the annotations
+  ``class``, ``ih`` and ``n_wrong``, which pyispace ignores and instancespace
+  (``isaspace.engine``) keeps as annotations. With ``outdir``, it writes the
+  metadata.csv and, next to it, the auxiliary files the engine copies
   (``write_metadata``: annotations.json, degenerate_report.csv,
-  feature_info.csv; formato em docs/output_format.md).
-- ``run_isa``: monta as opcoes, roda ``train_is`` (PILOT + TRACE), grava os
-  CSVs no layout do pyhard via ``pyispace.utils.scriptcsv`` e verifica que o
-  significado de "bom" nao foi invertido.
+  feature_info.csv; format in docs/output_format.md).
+- ``run_isa``: builds the options, runs ``train_is`` (PILOT + TRACE), writes
+  the CSVs in pyhard's layout via ``pyispace.utils.scriptcsv`` and checks that
+  the meaning of "good" was not inverted.
 
-Requer o pyispace corrigido para Python 3.11 (``scripts/apply_pyispace_patch.py``).
-O pyispace 0.3.7 nao tem SIFTED, CLOISTER nem PYTHIA: toda ``feature_*`` que
-sobreviver a ``to_isa_metadata`` entra no PILOT.
+Requires pyispace patched for Python 3.11 (``scripts/apply_pyispace_patch.py``).
+pyispace 0.3.7 has no SIFTED, CLOISTER or PYTHIA: every ``feature_*`` that
+survives ``to_isa_metadata`` goes into PILOT.
 """
 
 import json
@@ -34,37 +34,38 @@ _ALGO = "algo_"
 _PROBA = "proba_"
 INDEX_NAME = "instances"
 ROW_ORIGINAL = "row_original"
-# colunas da tabela por instancia que viajam no metadata como anotacoes:
-# nao sao feature_* nem algo_*, entao train_is e o instancespace nao as usam
-ANOTACOES = ("class", "ih", "n_wrong")
-# rotulo da classe: o valor nominal do alvo no OpenML, sempre texto
-# (pipeline.build_instance_table grava pd.Series(y).astype(str))
-ROTULO = "class"
-# tipo declarado de cada anotacao (annotations.json): o CSV nao guarda tipo e
-# "1"/"2" voltaria como numero
-TIPOS_ANOTACAO = {
-    "row_original": "identifier",       # indice da linha no dataset do OpenML
-    "class": "categorica", "ih": "numerica", "n_wrong": "numerica_inteira",
+# columns of the per-instance table that travel in the metadata as
+# annotations: they are neither feature_* nor algo_*, so train_is and
+# instancespace do not use them
+ANNOTATIONS = ("class", "ih", "n_wrong")
+# class label: the nominal value of the OpenML target, always text
+# (pipeline.build_instance_table writes pd.Series(y).astype(str))
+LABEL = "class"
+# declared type of each annotation (annotations.json): CSV does not store
+# types, and "1"/"2" would come back as numbers
+ANNOTATION_TYPES = {
+    "row_original": "identifier",       # row index in the OpenML dataset
+    "class": "categorical", "ih": "numeric", "n_wrong": "integer",
 }
-# familia das medidas do pyhard (feature_info.csv): as que dependem de um
-# modelo ajustado sao model_derived; as demais, geometric
+# family of the pyhard measures (feature_info.csv): the ones that depend on a
+# fitted model are model_derived; the others, geometric
 MODEL_DERIVED = ("CL", "CLD", "DS", "DCP", "TD_U", "TD_P")
 
-# Diferenca maxima tolerada entre a taxa "boa" do pyispace (Ybin) e a acuracia
-# real de cada algoritmo. Acima disso o mais provavel e perf.MaxPerf invertido.
-TOLERANCIA_YBIN = 0.15
+# Maximum tolerated difference between pyispace's "good" rate (Ybin) and the
+# true accuracy of each algorithm. Above it, perf.MaxPerf is most likely inverted.
+YBIN_TOLERANCE = 0.15
 
 
-def _importar_pyispace():
-    """Importa o pyispace com mensagem util se o patch de 3.11 nao foi aplicado."""
+def _import_pyispace():
+    """Import pyispace with a helpful message if the 3.11 patch was not applied."""
     try:
         import pyispace  # noqa: F401
         from pyispace import preprocessing, utils
         from pyispace.train import train_is
     except (ValueError, ImportError) as exc:
         raise ImportError(
-            "pyispace nao importa neste Python (defaults mutaveis em "
-            "pyispace/train.py). Rode: python scripts/apply_pyispace_patch.py"
+            "pyispace does not import on this Python (mutable defaults in "
+            "pyispace/train.py). Run: python scripts/apply_pyispace_patch.py"
         ) from exc
     return train_is, preprocessing, utils
 
@@ -72,193 +73,191 @@ def _importar_pyispace():
 # --------------------------------------------------------------------------- #
 # to_isa_metadata
 # --------------------------------------------------------------------------- #
-def _filtrar_degeneradas(F, min_var):
-    """Separa as features que o pre-processamento do pyispace torna constantes.
+def _split_degenerate(F, min_var):
+    """Separate the features that pyispace's preprocessing turns constant.
 
-    Reproduz exatamente o que ``train_is`` faz com ``auto.preproc=True``
-    (train.py:128-134): ``bound_outliers`` (recorte em mediana +- 5*IQR) seguido
-    de ``auto_normalize`` (Yeo-Johnson + z-score). Uma coluna com IQR = 0 e
-    colapsada numa constante pelo recorte; depois disso o z-score deixa a
-    variancia em zero, o PILOT devolve R2 = NaN para ela e a coluna so
-    atrapalha o ajuste. Devolve (mantidas, descartadas) com o motivo de cada
-    descarte e as variancias medidas.
+    Reproduces exactly what ``train_is`` does with ``auto.preproc=True``
+    (train.py:128-134): ``bound_outliers`` (clipping at median +- 5*IQR)
+    followed by ``auto_normalize`` (Yeo-Johnson + z-score). A column with
+    IQR = 0 is collapsed to a constant by the clipping; after that the z-score
+    leaves zero variance, PILOT returns R2 = NaN for it and the column only
+    hurts the fit. Returns (kept, dropped) with the reason for each drop and
+    the measured variances.
     """
-    _, preprocessing, _ = _importar_pyispace()
+    _, preprocessing, _ = _import_pyispace()
     X = F.to_numpy(dtype=float)
     n_nan = np.isnan(X).sum(axis=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        var_bruta = np.nanvar(X, axis=0)
+        raw_variance = np.nanvar(X, axis=0)
         iqr = _iqr(X, axis=0, nan_policy="omit")
 
-    # Colunas com NaN nao podem passar pelo pre-processamento do pyispace:
-    # bound_outliers usa np.median, que devolve NaN, e o np.clip com limites
-    # NaN transforma a coluna inteira em NaN; o PowerTransformer entao aborta
-    # com scipy BracketError. Sao descartadas antes e nao entram no calculo.
-    sem_nan = np.flatnonzero(n_nan == 0)
-    var_pos = np.full(X.shape[1], np.nan)
-    if sem_nan.size:
+    # Columns with NaN cannot go through pyispace's preprocessing:
+    # bound_outliers uses np.median, which returns NaN, and np.clip with NaN
+    # bounds turns the whole column into NaN; PowerTransformer then aborts
+    # with scipy BracketError. They are dropped beforehand and left out of it.
+    no_nan = np.flatnonzero(n_nan == 0)
+    var_after = np.full(X.shape[1], np.nan)
+    if no_nan.size:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             Xn = preprocessing.auto_normalize(
-                preprocessing.bound_outliers(X[:, sem_nan])
+                preprocessing.bound_outliers(X[:, no_nan])
             )
-        var_pos[sem_nan] = np.nanvar(Xn, axis=0)
+        var_after[no_nan] = np.nanvar(Xn, axis=0)
 
-    mantidas, descartadas = [], []
+    kept, dropped = [], []
     for j, col in enumerate(F.columns):
-        degenerada = not (var_pos[j] >= min_var)  # NaN conta como degenerada
-        if not degenerada:
-            mantidas.append(col)
+        degenerate = not (var_after[j] >= min_var)  # NaN counts as degenerate
+        if not degenerate:
+            kept.append(col)
             continue
         if n_nan[j] == X.shape[0]:
-            motivo = "todos os valores NaN"
+            reason = "all values NaN"
         elif n_nan[j] > 0:
-            motivo = (
-                f"{int(n_nan[j])} NaN: bound_outliers (np.median) propaga NaN "
-                "para a coluna inteira"
+            reason = (
+                f"{int(n_nan[j])} NaN: bound_outliers (np.median) spreads NaN "
+                "to the whole column"
             )
-        elif var_bruta[j] < min_var:
-            motivo = "variancia bruta ~0 (coluna constante)"
+        elif raw_variance[j] < min_var:
+            reason = "raw variance ~0 (constant column)"
         elif iqr[j] == 0:
-            motivo = (
-                "IQR = 0: bound_outliers (mediana +- 5*IQR) colapsa a coluna "
-                "numa constante"
+            reason = (
+                "IQR = 0: bound_outliers (median +- 5*IQR) collapses the column "
+                "to a constant"
             )
         else:
-            motivo = f"variancia < {min_var:g} apos Yeo-Johnson + z-score"
-        descartadas.append(
+            reason = f"variance < {min_var:g} after Yeo-Johnson + z-score"
+        dropped.append(
             {
                 "feature": col,
-                "var_bruta": float(var_bruta[j]),
+                "raw_variance": float(raw_variance[j]),
                 "iqr": float(iqr[j]),
-                "var_pos_preproc": float(var_pos[j]),
-                "motivo": motivo,
+                "var_after_preproc": float(var_after[j]),
+                "reason": reason,
             }
         )
-    return mantidas, descartadas
+    return kept, dropped
 
 
 def to_isa_metadata(
     table, drop_degenerate=True, min_var=1e-8, proba_as_performance=True,
-    annotations=ANOTACOES, outdir=None,
+    annotations=ANNOTATIONS, outdir=None,
 ):
-    """Converte a tabela por instancia no metadata que ``train_is`` consome.
+    """Convert the per-instance table into the metadata ``train_is`` consumes.
 
-    Parametros
+    Parameters
     ----------
-    table : DataFrame com colunas ``feature_*``, ``algo_*`` (acerto 0/1) e
-        ``proba_*`` (probabilidade da classe verdadeira), como as geradas por
+    table : DataFrame with ``feature_*``, ``algo_*`` (0/1 hit) and ``proba_*``
+        (probability of the true class) columns, as produced by
         ``isaspace.pipeline.build_instance_table``.
-    drop_degenerate : descarta as ``feature_*`` cuja variancia fica abaixo de
-        ``min_var`` depois do pre-processamento do proprio pyispace (ver
-        ``_filtrar_degeneradas``).
-    proba_as_performance : se True, as ``algo_*`` de acerto 0/1 sao
-        descartadas e as ``proba_*`` viram ``algo_<nome>`` (desempenho
-        continuo, maior e melhor: e o que o PILOT consegue ajustar). Se False,
-        mantem as ``algo_*`` originais e descarta as ``proba_*``.
-    annotations : colunas da tabela copiadas para o metadata como anotacoes
-        (padrao ``class``, ``ih``, ``n_wrong``). Todas tem de existir na
-        tabela. ``class`` vai como texto: o rotulo nominal do OpenML.
-    outdir : se dado, grava o metadata e os arquivos auxiliares nessa pasta
-        (``write_metadata``).
+    drop_degenerate : drop the ``feature_*`` whose variance falls below
+        ``min_var`` after pyispace's own preprocessing (see
+        ``_split_degenerate``).
+    proba_as_performance : if True, the 0/1 hit ``algo_*`` are dropped and the
+        ``proba_*`` become ``algo_<name>`` (continuous performance, higher is
+        better: that is what PILOT can fit). If False, keep the original
+        ``algo_*`` and drop the ``proba_*``.
+    annotations : table columns copied into the metadata as annotations
+        (default ``class``, ``ih``, ``n_wrong``). All of them must exist in
+        the table. ``class`` goes as text: the nominal OpenML label.
+    outdir : if given, write the metadata and the auxiliary files to this
+        folder (``write_metadata``).
 
-    Retorna
+    Returns
     -------
     (metadata, info)
-      metadata : DataFrame com ``row_original`` (indice original da tabela),
-          as anotacoes, as ``feature_*`` mantidas e as ``algo_*``; indice
-          ``instances`` com os rotulos "1".."n" em texto. As colunas que nao
-          comecam com ``feature_`` ou ``algo_`` sao ignoradas por
-          ``train_is`` (train.py:56-57) e tratadas como anotacoes pelo
-          instancespace.
-      info : dict com ``features_kept``, ``features_dropped`` (lista de dicts
-          com feature, var_bruta, iqr, var_pos_preproc e motivo),
-          ``performance_source`` ("proba" ou "acerto"), ``algos``,
-          ``annotations``, ``row_original`` (Series instances -> indice
-          original, para o join da interface), ``acerto_real`` (taxa de
-          acerto 0/1 por algoritmo, usada pelo guarda-corpo de ``run_isa``),
-          ``annotation_types`` (tipos declarados, TIPOS_ANOTACAO),
-          ``degenerate_report`` (DataFrame feature, var_bruta, iqr, motivo)
-          e ``feature_info`` (DataFrame feature, family; todas as medidas da
-          tabela).
+      metadata : DataFrame with ``row_original`` (original table index), the
+          annotations, the kept ``feature_*`` and the ``algo_*``; index
+          ``instances`` with the labels "1".."n" as text. Columns that do not
+          start with ``feature_`` or ``algo_`` are ignored by ``train_is``
+          (train.py:56-57) and treated as annotations by instancespace.
+      info : dict with ``features_kept``, ``features_dropped`` (list of dicts
+          with feature, raw_variance, iqr, var_after_preproc and reason),
+          ``performance_source`` ("proba" or "hit"), ``algos``,
+          ``annotations``, ``row_original`` (Series instances -> original
+          index, for the interface's join), ``true_accuracy`` (0/1 hit rate
+          per algorithm, used by ``run_isa``'s guard), ``annotation_types``
+          (declared types, ANNOTATION_TYPES), ``degenerate_report``
+          (DataFrame feature, raw_variance, iqr, reason) and ``feature_info``
+          (DataFrame feature, family; every measure in the table).
     """
     feature_cols = [c for c in table.columns if c.startswith(_FEATURE)]
     algo_cols = [c for c in table.columns if c.startswith(_ALGO)]
     if not feature_cols:
-        raise ValueError("tabela sem colunas feature_*")
+        raise ValueError("table has no feature_* columns")
     if not algo_cols:
-        raise ValueError("tabela sem colunas algo_*")
+        raise ValueError("table has no algo_* columns")
     annotations = list(annotations)
-    faltam = [c for c in annotations if c not in table.columns]
-    if faltam:
-        raise ValueError(f"tabela sem as colunas de anotacao {faltam}")
-    reservadas = [
+    missing = [c for c in annotations if c not in table.columns]
+    if missing:
+        raise ValueError(f"table lacks the annotation columns {missing}")
+    reserved = [
         c for c in annotations
         if c.casefold() in (INDEX_NAME, "source", ROW_ORIGINAL)
         or c.casefold().startswith((_FEATURE, _ALGO))
     ]
-    if reservadas:
-        raise ValueError(f"nome reservado usado como anotacao: {reservadas}")
+    if reserved:
+        raise ValueError(f"reserved name used as an annotation: {reserved}")
 
     F = table[feature_cols].astype(float)
     if drop_degenerate:
-        kept, dropped = _filtrar_degeneradas(F, min_var)
+        kept, dropped = _split_degenerate(F, min_var)
     else:
         kept, dropped = feature_cols, []
     if len(kept) < 2:
         raise ValueError(
-            f"so {len(kept)} feature(s) sobreviveram ao filtro; o PILOT precisa "
-            "de pelo menos 2"
+            f"only {len(kept)} feature(s) survived the filter; PILOT needs "
+            "at least 2"
         )
 
-    nomes = [c[len(_ALGO):] for c in algo_cols]
+    names = [c[len(_ALGO):] for c in algo_cols]
     if proba_as_performance:
-        faltando = [n for n in nomes if f"{_PROBA}{n}" not in table.columns]
-        if faltando:
-            raise ValueError(f"sem coluna proba_* para: {faltando}")
-        Y = table[[f"{_PROBA}{n}" for n in nomes]].astype(float)
-        Y.columns = [f"{_ALGO}{n}" for n in nomes]
-        fonte = "proba"
+        lacking = [n for n in names if f"{_PROBA}{n}" not in table.columns]
+        if lacking:
+            raise ValueError(f"no proba_* column for: {lacking}")
+        Y = table[[f"{_PROBA}{n}" for n in names]].astype(float)
+        Y.columns = [f"{_ALGO}{n}" for n in names]
+        source = "proba"
     else:
         Y = table[algo_cols].astype(float)
-        fonte = "acerto"
+        source = "hit"
 
     n = len(table)
-    # rotulos em texto; os valores "1".."n" sao os mesmos do RangeIndex antigo,
-    # entao o Row 1..n do coordinates.csv do pyispace continua casando
-    novo_indice = pd.Index(
+    # text labels; the values "1".."n" are the same as the old RangeIndex, so
+    # the Row 1..n of pyispace's coordinates.csv still matches
+    new_index = pd.Index(
         [str(i) for i in range(1, n + 1)], name=INDEX_NAME, dtype=object
     )
     row_original = pd.Series(
-        table.index.to_numpy(), index=novo_indice, name=ROW_ORIGINAL
+        table.index.to_numpy(), index=new_index, name=ROW_ORIGINAL
     )
 
-    anot = table[annotations].copy()
-    if ROTULO in anot.columns:
-        # a tabela relida do CSV traz os rotulos nominais "1"/"2" (blood) e
-        # "0"/"1" (hill-valley) como inteiros; volta para o texto do OpenML
-        anot[ROTULO] = anot[ROTULO].astype(str)
-    metadata = pd.concat([anot, F[kept], Y], axis=1)
-    metadata.index = novo_indice
+    ann = table[annotations].copy()
+    if LABEL in ann.columns:
+        # the table read back from CSV brings the nominal labels "1"/"2"
+        # (blood) and "0"/"1" (hill-valley) as integers; back to OpenML's text
+        ann[LABEL] = ann[LABEL].astype(str)
+    metadata = pd.concat([ann, F[kept], Y], axis=1)
+    metadata.index = new_index
     metadata.insert(0, ROW_ORIGINAL, row_original.to_numpy())
 
-    acerto_real = {n_: float(table[f"{_ALGO}{n_}"].mean()) for n_ in nomes}
+    true_accuracy = {n_: float(table[f"{_ALGO}{n_}"].mean()) for n_ in names}
     info = {
         "n_instances": n,
         "features_kept": kept,
         "features_dropped": dropped,
-        "performance_source": fonte,
-        "algos": nomes,
+        "performance_source": source,
+        "algos": names,
         "annotations": annotations,
         "row_original": row_original,
-        "acerto_real": acerto_real,
-        "annotation_types": {c: TIPOS_ANOTACAO[c] for c in [ROW_ORIGINAL, *annotations]
-                             if c in TIPOS_ANOTACAO},
+        "true_accuracy": true_accuracy,
+        "annotation_types": {c: ANNOTATION_TYPES[c] for c in [ROW_ORIGINAL, *annotations]
+                             if c in ANNOTATION_TYPES},
         "degenerate_report": pd.DataFrame(
-            [{"feature": d["feature"][len(_FEATURE):], "var_bruta": d["var_bruta"],
-              "iqr": d["iqr"], "motivo": d["motivo"]} for d in dropped],
-            columns=["feature", "var_bruta", "iqr", "motivo"],
+            [{"feature": d["feature"][len(_FEATURE):], "raw_variance": d["raw_variance"],
+              "iqr": d["iqr"], "reason": d["reason"]} for d in dropped],
+            columns=["feature", "raw_variance", "iqr", "reason"],
         ),
         "feature_info": pd.DataFrame({
             "feature": [c[len(_FEATURE):] for c in feature_cols],
@@ -266,139 +265,139 @@ def to_isa_metadata(
                        for c in feature_cols],
         }),
     }
-    # copia do guarda-corpo viajando junto com o DataFrame, para run_isa
-    # funcionar mesmo sem receber a tabela original
-    metadata.attrs["acerto_real"] = acerto_real
+    # copy of the guard data travelling with the DataFrame, so that run_isa
+    # works even without receiving the original table
+    metadata.attrs["true_accuracy"] = true_accuracy
     if outdir is not None:
         write_metadata(metadata, info, outdir)
     return metadata, info
 
 
 def write_metadata(metadata, info, outdir):
-    """Grava metadata.csv e, ao lado, os arquivos que o engine copia se existirem.
+    """Write metadata.csv and, next to it, the files the engine copies if present.
 
-    - annotations.json: {anotacao: "categorica" | "numerica" | "numerica_inteira" |
+    - annotations.json: {annotation: "categorical" | "numeric" | "integer" |
       "identifier"};
-    - degenerate_report.csv: medidas descartadas antes do engine (feature,
-      var_bruta, iqr, motivo); so o cabecalho quando nenhuma caiu;
-    - feature_info.csv: feature, family de todas as medidas recebidas.
-    Devolve os caminhos gravados.
+    - degenerate_report.csv: measures dropped before the engine (feature,
+      raw_variance, iqr, reason); header only when none was dropped;
+    - feature_info.csv: feature, family of every measure received.
+    Returns the paths written.
     """
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    caminhos = [outdir / n for n in ("metadata.csv", "annotations.json",
-                                     "degenerate_report.csv", "feature_info.csv")]
-    metadata.to_csv(caminhos[0])
-    caminhos[1].write_text(json.dumps(info["annotation_types"], indent=2) + "\n")
-    info["degenerate_report"].to_csv(caminhos[2], index=False)
-    info["feature_info"].to_csv(caminhos[3], index=False)
-    return caminhos
+    paths = [outdir / n for n in ("metadata.csv", "annotations.json",
+                                  "degenerate_report.csv", "feature_info.csv")]
+    metadata.to_csv(paths[0])
+    paths[1].write_text(json.dumps(info["annotation_types"], indent=2) + "\n")
+    info["degenerate_report"].to_csv(paths[2], index=False)
+    info["feature_info"].to_csv(paths[3], index=False)
+    return paths
 
 
 # --------------------------------------------------------------------------- #
 # run_isa
 # --------------------------------------------------------------------------- #
-def _acerto_real(metadata, table):
-    """Taxa de acerto 0/1 por algoritmo, da tabela original ou de metadata.attrs."""
+def _true_accuracy(metadata, table):
+    """0/1 hit rate per algorithm, from the original table or metadata.attrs."""
     algos = [c[len(_ALGO):] for c in metadata.columns if c.startswith(_ALGO)]
     if table is not None:
-        faltando = [a for a in algos if f"{_ALGO}{a}" not in table.columns]
-        if faltando:
-            raise ValueError(f"tabela original sem algo_* para: {faltando}")
+        lacking = [a for a in algos if f"{_ALGO}{a}" not in table.columns]
+        if lacking:
+            raise ValueError(f"original table has no algo_* for: {lacking}")
         return {a: float(table[f"{_ALGO}{a}"].mean()) for a in algos}
-    guardado = metadata.attrs.get("acerto_real")
-    if guardado is None:
+    stored = metadata.attrs.get("true_accuracy")
+    if stored is None:
         raise ValueError(
-            "run_isa precisa da taxa de acerto real para o guarda-corpo: passe "
-            "table=<tabela original> ou use o metadata devolvido por "
+            "run_isa needs the true hit rate for its guard: pass "
+            "table=<original table> or use the metadata returned by "
             "to_isa_metadata"
         )
-    return {a: float(guardado[a]) for a in algos}
+    return {a: float(stored[a]) for a in algos}
 
 
-def _verificar_ybin(model, metadata, table, perf_epsilon):
-    """Guarda-corpo: a taxa 'boa' do pyispace tem de bater com a acuracia real.
+def _check_ybin(model, metadata, table, perf_epsilon):
+    """Guard: pyispace's 'good' rate must match the true accuracy.
 
-    ``train_is`` remove algoritmos sem nenhuma instancia boa (train.py:101-107);
-    para esses a taxa boa e tratada como 0, o que tambem dispara o erro.
+    ``train_is`` removes algorithms without any good instance (train.py:101-107);
+    for those the good rate is taken as 0, which also triggers the error.
     """
-    acerto_real = _acerto_real(metadata, table)
-    taxa_boa = dict(zip(model.data.algolabels, model.data.Ybin.mean(axis=0)))
+    true_accuracy = _true_accuracy(metadata, table)
+    good_rate = dict(zip(model.data.algolabels, model.data.Ybin.mean(axis=0)))
 
-    linhas, problemas = [], []
-    for algo, real in acerto_real.items():
-        boa = float(taxa_boa.get(algo, 0.0))
-        diff = abs(boa - real)
-        linhas.append((algo, boa, real, diff, algo in taxa_boa))
-        if diff > TOLERANCIA_YBIN:
-            problemas.append(f"{algo}: taxa boa={boa:.3f} vs acuracia={real:.3f}")
+    rows, problems = [], []
+    for algo, real in true_accuracy.items():
+        good = float(good_rate.get(algo, 0.0))
+        diff = abs(good - real)
+        rows.append((algo, good, real, diff, algo in good_rate))
+        if diff > YBIN_TOLERANCE:
+            problems.append(f"{algo}: good rate={good:.3f} vs accuracy={real:.3f}")
 
     check = pd.DataFrame(
-        linhas,
+        rows,
         columns=[
-            "algoritmo", "taxa_boa_ybin", "acuracia_real", "diferenca", "no_modelo"
+            "algorithm", "good_rate_ybin", "true_accuracy", "difference", "in_model"
         ],
-    ).set_index("algoritmo")
+    ).set_index("algorithm")
 
-    if problemas:
+    if problems:
         raise RuntimeError(
-            "Taxa 'boa' (Ybin) diverge da acuracia real em mais de "
-            f"{TOLERANCIA_YBIN}: " + "; ".join(problemas) + ". "
-            "Sintoma classico de perf.MaxPerf invertido: com MaxPerf=False o "
-            "pyispace considera 'bom' o desempenho <= epsilon, ou seja, o ERRO "
-            "quando algo_* e acerto ou probabilidade (maior e melhor). Confira "
-            f"opts['perf'] (MaxPerf deve ser True) e perf_epsilon={perf_epsilon}."
+            "'Good' rate (Ybin) differs from the true accuracy by more than "
+            f"{YBIN_TOLERANCE}: " + "; ".join(problems) + ". "
+            "Classic symptom of an inverted perf.MaxPerf: with MaxPerf=False "
+            "pyispace considers 'good' the performance <= epsilon, that is, the "
+            "ERROR when algo_* is a hit or a probability (higher is better). "
+            f"Check opts['perf'] (MaxPerf must be True) and perf_epsilon={perf_epsilon}."
         )
     return check
 
 
 def run_isa(metadata, outdir, perf_epsilon=0.5, seed=42, table=None):
-    """Roda PILOT + TRACE do pyispace e grava os CSVs no layout do pyhard.
+    """Run pyispace's PILOT + TRACE and write the CSVs in pyhard's layout.
 
-    Parametros
+    Parameters
     ----------
-    metadata : saida de ``to_isa_metadata`` (ou qualquer DataFrame com
-        ``feature_*`` e ``algo_*`` em que maior e melhor).
-    outdir : pasta de saida; recebe ``metadata.csv``, ``options.json`` e os
-        arquivos de ``pyispace.utils.scriptcsv`` (coordinates.csv,
+    metadata : output of ``to_isa_metadata`` (or any DataFrame with
+        ``feature_*`` and ``algo_*`` where higher is better).
+    outdir : output folder; receives ``metadata.csv``, ``options.json`` and
+        the files of ``pyispace.utils.scriptcsv`` (coordinates.csv,
         footprint_performance.csv, algorithm_bin.csv, beta_easy.csv,
         good_algos.csv, footprint_<algo>_<good|best>.csv, model.pkl, ...).
-    perf_epsilon : instancia e "boa" para um algoritmo se algo_* >= epsilon.
-    seed : semente do PILOT (pilot.py:64) e do desempate de melhor algoritmo
-        (train.py:119, que usa np.random sem semente propria).
-    table : tabela original, para o guarda-corpo comparar a taxa 'boa' com a
-        acuracia real. Se omitida, usa ``metadata.attrs['acerto_real']``.
+    perf_epsilon : an instance is "good" for an algorithm if algo_* >= epsilon.
+    seed : seed of PILOT (pilot.py:64) and of the best-algorithm tie break
+        (train.py:119, which uses np.random without its own seed).
+    table : original table, so the guard can compare the 'good' rate with the
+        true accuracy. If omitted, uses ``metadata.attrs['true_accuracy']``.
 
-    Retorna o ``pyispace.train.Model``; ``model.ybin_check`` guarda a tabela
-    de comparacao do guarda-corpo.
+    Returns the ``pyispace.train.Model``; ``model.ybin_check`` holds the
+    guard's comparison table.
     """
-    train_is, _, utils = _importar_pyispace()
+    train_is, _, utils = _import_pyispace()
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Opcoes do pyispace 0.3.7. So estas chaves sao lidas por train_is, pilot e
-    # trace; as demais do options.json do pyhard (parallel, corr, clust,
-    # cloister, pythia, selvars, outputs, auto.featsel, trace.usesim) sao
-    # aceitas e ignoradas.
+    # pyispace 0.3.7 options. Only these keys are read by train_is, pilot and
+    # trace; the other keys of pyhard's options.json (parallel, corr, clust,
+    # cloister, pythia, selvars, outputs, auto.featsel, trace.usesim) are
+    # accepted and ignored.
     opts = {
         "perf": {
-            # OBRIGATORIO: com False, "bom" vira desempenho <= epsilon, ou seja,
-            # o ERRO (train.py:84-96). Nossas algo_* sao acerto/probabilidade.
+            # REQUIRED: with False, "good" becomes performance <= epsilon, that
+            # is, the ERROR (train.py:84-96). Our algo_* are hit/probability.
             "MaxPerf": True,
-            # limiar absoluto (Ybin = Y >= epsilon), nao relativo ao melhor
+            # absolute threshold (Ybin = Y >= epsilon), not relative to the best
             "AbsPerf": True,
             "epsilon": perf_epsilon,
         },
-        # instancia e beta-facil se mais de 55% dos algoritmos sao bons
+        # an instance is beta-easy if more than 55% of the algorithms are good
         "general": {"betaThreshold": 0.55},
-        # pre-processamento do pyispace: recorte de outliers + Yeo-Johnson/z-score
+        # pyispace preprocessing: outlier clipping + Yeo-Johnson/z-score
         "auto": {"preproc": True},
         "bound": {"flag": True},
         "norm": {"flag": True},
-        # PILOT numerico (BFGS) com 5 tentativas e semente fixa
+        # numeric PILOT (BFGS) with 5 tries and a fixed seed
         "pilot": {"analytic": False, "ntries": 5, "seed": seed},
-        # TRACE: pureza minima 0.55. parallel=True quebra: os processos filhos
-        # do joblib reimportam o pyispace (e o patch so vale no disco local).
+        # TRACE: minimum purity 0.55. parallel=True breaks: joblib's child
+        # processes re-import pyispace (and the patch only exists on local disk).
         "trace": {"PI": 0.55, "parallel": False},
     }
 
@@ -409,8 +408,8 @@ def run_isa(metadata, outdir, perf_epsilon=0.5, seed=42, table=None):
     np.random.seed(seed)
     model = train_is(metadata, opts, rotation_adjust=True)
 
-    # guarda-corpo mais importante do arquivo: antes de gravar qualquer saida
-    model.ybin_check = _verificar_ybin(model, metadata, table, perf_epsilon)
+    # the most important guard in this file: before writing any output
+    model.ybin_check = _check_ybin(model, metadata, table, perf_epsilon)
 
     utils.scriptcsv(model, outdir)
     return model

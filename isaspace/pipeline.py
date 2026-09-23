@@ -1,4 +1,4 @@
-"""Pipeline completo: medidas + desempenho do portfolio numa tabela por instancia."""
+"""Full pipeline: measures + portfolio performance in one per-instance table."""
 
 import os
 
@@ -11,20 +11,20 @@ from isaspace.performance import algo_performance
 
 
 def build_instance_table(dataset_id, measures_list=None, n_folds=5, seed=42):
-    """Tabela unica por instancia: medidas, desempenho do portfolio e derivados.
+    """Single per-instance table: measures, portfolio performance and derived columns.
 
-    Colunas: feature_* (medidas), algo_*/proba_* (desempenho out-of-fold),
-    "class" (rotulo original em texto), "n_wrong" (algoritmos que erraram) e
-    "ih" (1 - probabilidade media atribuida a classe verdadeira).
-    Indice: o indice original da instancia no dataset. Retorna (tabela, meta).
+    Columns: feature_* (measures), algo_*/proba_* (out-of-fold performance),
+    "class" (original label as text), "n_wrong" (algorithms that got it wrong)
+    and "ih" (1 - mean probability assigned to the true class).
+    Index: the original index of the instance in the dataset. Returns (table, meta).
     """
     X, y, meta = load_openml_dataset(dataset_id)
     df = to_pyhard_frame(X, y)
 
-    # PYHARD_SEED controla o random_state das arvores internas do pyhard
-    # (DCP/TD_P variam entre execucoes sem isso); restaura o valor anterior
-    # para nao vazar estado global.
-    seed_anterior = os.environ.get("PYHARD_SEED")
+    # PYHARD_SEED controls the random_state of pyhard's internal trees
+    # (DCP/TD_P vary between runs without it); the previous value is restored
+    # so no global state leaks.
+    previous_seed = os.environ.get("PYHARD_SEED")
     os.environ["PYHARD_SEED"] = str(seed)
     try:
         with parallel_backend("sequential"):
@@ -32,10 +32,10 @@ def build_instance_table(dataset_id, measures_list=None, n_folds=5, seed=42):
                 df, measures_list=measures_list, ccp_alpha=0.01
             )
     finally:
-        if seed_anterior is None:
+        if previous_seed is None:
             del os.environ["PYHARD_SEED"]
         else:
-            os.environ["PYHARD_SEED"] = seed_anterior
+            os.environ["PYHARD_SEED"] = previous_seed
 
     perf = algo_performance(df, n_folds=n_folds, seed=seed)
 

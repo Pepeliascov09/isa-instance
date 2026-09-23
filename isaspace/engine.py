@@ -1,48 +1,54 @@
-"""Motor ISA sobre o pacote ``instancespace`` (grupo do Mario Munoz).
+"""ISA engine on top of the ``instancespace`` package (Muñoz et al.).
 
-Roda o pipeline completo (PREPROCESSING, PRELIM, SIFTED, PILOT, PYTHIA,
-CLOISTER, TRACE) estagio por estagio sobre um metadata.csv e grava a pasta que
-``isaspace.ui.loader_is`` le:
+Runs the full pipeline (PREPROCESSING, PRELIM, SIFTED, PILOT, PYTHIA,
+CLOISTER, TRACE) stage by stage on a metadata.csv and writes the folder that
+``isaspace.ui.loader_is`` reads:
 
-- tudo o que ``Model.save_to_csv`` grava (coordinates.csv, feature_*.csv,
+- everything ``Model.save_to_csv`` writes (coordinates.csv, feature_*.csv,
   algorithm_*.csv, good_algos.csv, beta_easy.csv, portfolio*.csv,
   footprint_<algo>_<good|best>.csv, footprint_performance.csv,
   projection_matrix.csv, bounds*.csv, svm_table.csv);
-- ``coordinates.csv`` reescrito com o z do PILOT sem correcao e, so quando o
-  jitter e aplicado, ``coordinates_trace.csv`` com o z que o TRACE usou;
-- ``metadata.csv``: copia byte a byte do metadata de entrada (anotacoes e
-  source inclusos) e, se existirem ao lado dele, ``annotations.json`` (tipos
-  declarados das anotacoes, validados antes de rodar), ``degenerate_report.csv``
-  e ``feature_info.csv``;
-- ``run_options.json``: as opcoes efetivas, ``dataclasses.asdict`` de
-  ``InstanceSpaceOptions`` (``InstanceSpaceOptions.from_dict`` le de volta);
+- ``coordinates.csv`` rewritten with the uncorrected PILOT z and, only when
+  jitter is applied, ``coordinates_trace.csv`` with the z TRACE used;
+- ``metadata.csv``: byte-for-byte copy of the input metadata (annotations and
+  source included) and, if present next to it, ``annotations.json`` (declared
+  annotation types, validated before running), ``degenerate_report.csv`` and
+  ``feature_info.csv``;
+- ``run_options.json``: the effective options, ``dataclasses.asdict`` of
+  ``InstanceSpaceOptions`` (``InstanceSpaceOptions.from_dict`` reads it back);
 - ``sifted_report.csv``, ``sifted_correlations.csv``, ``sifted_silhouette.csv``
   (``Model.sifted``), ``pilot_r2.csv`` (``Model.pilot.r2``);
-- ``pythia_proba.csv`` (pr0_sub e pr0_hat), ``pythia_confusion.csv``
-  (cvcmat) e ``pythia_selection.csv`` (selection0 e selection1);
-- ``footprint_space.csv`` e ``footprint_hard.csv`` (``Model.trace.space`` e
-  ``.hard``), no mesmo esquema das footprints dos algoritmos;
-- ``run_info.json``: versoes, tempos por estagio, n de instancias, correcao de
-  quase duplicatas antes do TRACE, metricas das footprints space e hard e
-  avisos. E gravado por ultimo: pasta sem ele e execucao incompleta.
+- ``pythia_proba.csv`` (pr0_sub and pr0_hat), ``pythia_confusion.csv``
+  (cvcmat) and ``pythia_selection.csv`` (selection0 and selection1);
+- ``footprint_space.csv`` and ``footprint_hard.csv`` (``Model.trace.space`` and
+  ``.hard``), in the same schema as the algorithm footprints;
+- ``run_info.json``: versions, timings per stage, number of instances, the
+  near-duplicate correction before TRACE, metrics of the space and hard
+  footprints, and warnings. It is written last: a folder without it is an
+  incomplete run.
 
-O formato de cada arquivo esta em docs/output_format.md.
+The format of every file is in docs/output_format.md.
 
-Robustez do TRACE: o alpha shape do TRACE legado do instancespace 0.3.0 devolve
-poligono vazio quando a projecao tem pontos DISTINTOS a ~1e-14 um do outro
-(hill-valley: footprints good e area do espaco zeradas); pontos identicos nao
-atrapalham, o TRACE os funde com np.unique. Depois do PILOT,
-``run_instancespace`` conta os pares a menos de ``LIMIAR_DUPLICATA``; havendo
-posicoes distintas nessa distancia, soma a cada uma um ruido normal de desvio
-``ESCALA_JITTER`` com semente fixa (pontos identicos recebem o mesmo) e passa
-esse z so ao TRACE, com ``run_stage(TraceStage, z=...)``. PYTHIA (que ajusta
-hiperparametros sobre z e muda ate 0.08 de probabilidade com essa perturbacao)
-e CLOISTER (que nao usa z) ficam como sem a correcao. O runner guarda o
-override no Model, mas coordinates.csv e reescrito com o z do PILOT; o z do
-TRACE vai para coordinates_trace.csv. Tudo fica registrado em
-``run_info.json["trace_robustez"]``.
+TRACE robustness: the legacy TRACE alpha shape in instancespace 0.3.0 returns
+an empty polygon when the projection has DISTINCT points ~1e-14 apart
+(hill-valley: good footprints and space area went to zero); identical points
+do no harm, TRACE merges them with np.unique. After PILOT,
+``run_instancespace`` counts the pairs closer than ``NEAR_DUPLICATE_THRESHOLD``;
+if there are distinct positions that close, it adds to each one normal noise
+with standard deviation ``JITTER_SCALE`` and a fixed seed (identical points
+get the same shift) and passes that z only to TRACE, with
+``run_stage(TraceStage, z=...)``. PYTHIA (which tunes hyperparameters on z and
+moves probabilities by up to 0.08 under that perturbation) and CLOISTER (which
+does not use z) run without the correction. The runner keeps the override in
+the Model, but coordinates.csv is rewritten with the PILOT z; the TRACE z goes
+to coordinates_trace.csv. Everything is recorded in
+``run_info.json["trace_robustness"]``.
 
-Requer Python 3.12 e o .venv-isa (instancespace 0.3.0); nao roda no .venv 3.11.
+Command line (used by the UI, isaspace.ui.runner, to run the engine in a
+subprocess): see ``main``.
+
+Requires Python 3.12 and the .venv-isa (instancespace 0.3.0); it does not run
+in the 3.11 .venv.
 """
 
 import argparse
@@ -76,12 +82,10 @@ from instancespace.stages.pythia import PythiaStage
 from instancespace.stages.sifted import SiftedStage
 from instancespace.stages.trace import TraceStage
 
-from isaspace.ui.execucao import PREFIXO
-from isaspace.ui.loader_is import erros_tipos_declarados
+from isaspace.ui.loader_is import declared_type_errors
+from isaspace.ui.runner import PREFIX
 
-# ordem de _BUILTIN_STAGE_ORDER do instancespace; PYTHIA e CLOISTER sao a mesma
-# onda e podem rodar em qualquer ordem entre si
-ESTAGIOS = [
+STAGES = [
     ("PREPROCESSING", PreprocessingStage),
     ("PRELIM", PrelimStage),
     ("SIFTED", SiftedStage),
@@ -91,135 +95,135 @@ ESTAGIOS = [
     ("TRACE", TraceStage),
 ]
 
-# Opcoes padrao, com os nomes de campo dos dataclasses do instancespace (os
-# mesmos do run_options.json). O que nao aparece aqui fica no padrao da
-# biblioteca, inclusive todo o SIFTED (rho=0.1, pval=0.05, k=6, GA).
+# Default options, with the field names of the instancespace dataclasses (the
+# same as run_options.json). Anything not listed here keeps the library
+# default, including all of SIFTED (rho=0.1, pval=0.05, k=6, GA).
 DEFAULT_OPTIONS = {
     "perf": {
-        # algo_* e desempenho em que MAIOR e melhor (acerto ou probabilidade
-        # da classe verdadeira). Com False, "bom" vira desempenho <= epsilon,
-        # ou seja, o erro.
+        # algo_* is a performance where HIGHER is better (accuracy or
+        # probability of the true class). With False, "good" becomes
+        # performance <= epsilon, i.e. the error.
         "max_perf": True,
-        # limiar absoluto: a instancia e boa para o algoritmo se algo_* >= epsilon
+        # absolute threshold: the instance is good for the algorithm if algo_* >= epsilon
         "abs_perf": True,
         "epsilon": 0.5,
     },
     "trace": {
-        # footprints do desempenho observado (y_bin e portfolio.csv), nao das
-        # previsoes do PYTHIA; o padrao da biblioteca e True
+        # footprints of the observed performance (y_bin and portfolio.csv), not
+        # of the PYTHIA predictions; the library default is True
         "use_sim": False,
     },
 }
 
-LIMIAR_DUPLICATA = 1e-6   # pares de pontos da projecao mais proximos que isso
-ESCALA_JITTER = 1e-6      # desvio do ruido normal somado aos pontos envolvidos
-SEMENTE_JITTER = 0
+NEAR_DUPLICATE_THRESHOLD = 1e-6   # projection point pairs closer than this
+JITTER_SCALE = 1e-6               # std of the normal noise added to those points
+JITTER_SEED = 0
 
 STATUS_KEPT = "kept"
-STATUS_CORRELACAO = "dropped_correlation"
-STATUS_REDUNDANCIA = "dropped_redundancy"
-STATUS_PREPROCESSING = "dropped_preprocessing"   # removida antes do SIFTED
-STATUS_INDETERMINADO = "undetermined"            # reconstrucao inconsistente
+STATUS_CORRELATION = "dropped_correlation"
+STATUS_REDUNDANCY = "dropped_redundancy"
+STATUS_PREPROCESSING = "dropped_preprocessing"   # removed before SIFTED
+STATUS_UNDETERMINED = "undetermined"             # inconsistent reconstruction
 
-# arquivos fixos que o engine grava; so estes (e os footprint_*) sao apagados
-# ao regravar uma pasta
-ARQUIVOS_SAVE_TO_CSV = (
+# fixed files the engine writes; only these (and footprint_*) are deleted when
+# a folder is rewritten
+SAVE_TO_CSV_FILES = (
     "coordinates.csv", "bounds.csv", "bounds_prunned.csv", "feature_raw.csv",
     "feature_process.csv", "algorithm_raw.csv", "algorithm_process.csv",
     "algorithm_bin.csv", "good_algos.csv", "beta_easy.csv", "portfolio.csv",
     "algorithm_svm.csv", "portfolio_svm.csv", "footprint_performance.csv",
     "projection_matrix.csv", "svm_table.csv",
 )
-ARQUIVOS_EXTRAS = (
+EXTRA_FILES = (
     "metadata.csv", "run_options.json", "coordinates_trace.csv",
     "sifted_report.csv", "sifted_correlations.csv", "sifted_silhouette.csv",
     "pilot_r2.csv", "pythia_proba.csv", "pythia_confusion.csv",
     "pythia_selection.csv", "footprint_space.csv", "footprint_hard.csv",
     "run_info.json",
 )
-# arquivos opcionais ao lado do metadata de entrada, copiados se existirem
-AUXILIARES = {
-    "annotations.json": None,                                  # validado a parte
-    "degenerate_report.csv": ("feature", "var_bruta", "iqr", "motivo"),
+# optional files next to the input metadata, copied when present
+AUXILIARY = {
+    "annotations.json": None,                                     # validated separately
+    "degenerate_report.csv": ("feature", "raw_variance", "iqr", "reason"),
     "feature_info.csv": ("feature", "family"),
 }
-ARQUIVOS_EXTRAS += tuple(AUXILIARES)
-# pythia_proba.csv: coluna <algo> = pr0_sub (padrao), <algo>_hat = pr0_hat
-SUFIXO_HAT = "_hat"
-# SiftedStage.evaluate_cluster testa k = 3 .. (n de features apos a correlacao) - 1
-K_MIN_SILHUETA = 3
-PADROES_FOOTPRINT = (
+EXTRA_FILES += tuple(AUXILIARY)
+# pythia_proba.csv: column <algo> = pr0_sub (default), <algo>_hat = pr0_hat
+HAT_SUFFIX = "_hat"
+# SiftedStage.evaluate_cluster tries k = 3 .. (features left after correlation) - 1
+SILHOUETTE_K_MIN = 3
+FOOTPRINT_PATTERNS = (
     "footprint_*_good.csv", "footprint_*_best.csv", "footprint_*_vertices.csv",
     "footprint_*_tetrahedra.csv", "footprint_*_boundary_faces.csv",
 )
-GERADO_POR = "isaspace.engine.run_instancespace"
+GENERATED_BY = "isaspace.engine.run_instancespace"
 
 
 # --------------------------------------------------------------------------- #
-# opcoes e metadata
+# options and metadata
 # --------------------------------------------------------------------------- #
-def _chave(nome):
-    """Forma normalizada de uma chave de opcao: 'MaxPerf', 'max_perf' -> 'maxperf'."""
-    return str(nome).casefold().replace("_", "")
+def _key(name):
+    """Normalized form of an option key: 'MaxPerf', 'max_perf' -> 'maxperf'."""
+    return str(name).casefold().replace("_", "")
 
 
 def build_options(options=None):
-    """InstanceSpaceOptions a partir de DEFAULT_OPTIONS sobreposto por `options`.
+    """InstanceSpaceOptions from DEFAULT_OPTIONS overridden by `options`.
 
-    `options` e um dict por grupo ({"trace": {"use_sim": True}}), com os nomes
-    do run_options.json ou os do options.json do MATLAB (MaxPerf, usesim, PI);
-    uma chave do usuario substitui a equivalente do padrao. Um
-    InstanceSpaceOptions pronto e devolvido sem alteracao.
+    `options` is a dict per group ({"trace": {"use_sim": True}}), with the
+    names of run_options.json or those of the MATLAB options.json (MaxPerf,
+    usesim, PI); a user key replaces the equivalent default key. A ready
+    InstanceSpaceOptions is returned unchanged.
     """
     if isinstance(options, InstanceSpaceOptions):
         return options
-    combinado = copy.deepcopy(DEFAULT_OPTIONS)
-    for grupo, valores in (options or {}).items():
-        base = combinado.get(grupo)
-        if isinstance(valores, dict) and isinstance(base, dict):
-            novas = {_chave(k) for k in valores}
-            base = {k: v for k, v in base.items() if _chave(k) not in novas}
-            combinado[grupo] = {**base, **valores}
+    merged = copy.deepcopy(DEFAULT_OPTIONS)
+    for group, values in (options or {}).items():
+        base = merged.get(group)
+        if isinstance(values, dict) and isinstance(base, dict):
+            new = {_key(k) for k in values}
+            base = {k: v for k, v in base.items() if _key(k) not in new}
+            merged[group] = {**base, **values}
         else:
-            combinado[grupo] = copy.deepcopy(valores)
-    return InstanceSpaceOptions.from_dict(combinado)
+            merged[group] = copy.deepcopy(values)
+    return InstanceSpaceOptions.from_dict(merged)
 
 
-def _ler_metadata(path):
-    """from_csv_file devolve None em erro e so loga; aqui o erro vira excecao."""
-    erros = []
-    sink = logger.add(lambda m: erros.append(m.record["message"]), level="ERROR")
+def _read_metadata(path):
+    """from_csv_file returns None on error and only logs; here the error becomes an exception."""
+    errors = []
+    sink = logger.add(lambda m: errors.append(m.record["message"]), level="ERROR")
     try:
         meta = is_metadata.from_csv_file(path)
     finally:
         logger.remove(sink)
     if meta is None:
-        raise ValueError(f"metadata invalido ({path}): " + (" | ".join(erros) or "sem detalhe"))
+        raise ValueError(f"invalid metadata ({path}): " + (" | ".join(errors) or "no detail"))
     return meta
 
 
-def _ler_auxiliares(metadata_path):
-    """Valida os arquivos auxiliares ao lado do metadata; devolve
-    ({nome: caminho} dos presentes, tipos declarados). Erro vira ValueError
-    antes de rodar o pipeline."""
-    pasta = Path(metadata_path).parent
-    presentes = {n: pasta / n for n in AUXILIARES if (pasta / n).is_file()}
-    for nome, obrigatorias in AUXILIARES.items():
-        if nome in presentes and obrigatorias is not None:
-            cols = list(pd.read_csv(presentes[nome], nrows=0).columns)
-            faltam = [c for c in obrigatorias if c not in cols]
-            if faltam:
-                raise ValueError(f"{nome}: faltam as colunas {faltam}")
-    tipos = {}
-    if "annotations.json" in presentes:
+def _read_auxiliary(metadata_path):
+    """Validate the auxiliary files next to the metadata; return ({name: path}
+    of those present, declared types). An error becomes ValueError before the
+    pipeline runs."""
+    folder = Path(metadata_path).parent
+    present = {n: folder / n for n in AUXILIARY if (folder / n).is_file()}
+    for name, required in AUXILIARY.items():
+        if name in present and required is not None:
+            cols = list(pd.read_csv(present[name], nrows=0).columns)
+            missing = [c for c in required if c not in cols]
+            if missing:
+                raise ValueError(f"{name}: missing columns {missing}")
+    types = {}
+    if "annotations.json" in present:
         try:
-            tipos = json.loads(presentes["annotations.json"].read_text())
+            types = json.loads(present["annotations.json"].read_text())
         except ValueError as exc:
-            raise ValueError(f"annotations.json invalido: {exc}") from exc
-        erros = erros_tipos_declarados(pd.read_csv(metadata_path), tipos)
-        if erros:
-            raise ValueError("annotations.json: " + "; ".join(erros))
-    return presentes, tipos
+            raise ValueError(f"invalid annotations.json: {exc}") from exc
+        errors = declared_type_errors(pd.read_csv(metadata_path), types)
+        if errors:
+            raise ValueError("annotations.json: " + "; ".join(errors))
+    return present, types
 
 
 def _json_default(obj):
@@ -229,372 +233,374 @@ def _json_default(obj):
         return obj.item()
     if isinstance(obj, (tuple, set)):
         return list(obj)
-    raise TypeError(f"nao serializavel em JSON: {type(obj).__name__}")
+    raise TypeError(f"not JSON serializable: {type(obj).__name__}")
 
 
 # --------------------------------------------------------------------------- #
-# robustez do TRACE
+# TRACE robustness
 # --------------------------------------------------------------------------- #
-def _pares_proximos(z, limiar):
-    """Pares (i, j) com distancia euclidiana < limiar, e as distancias."""
-    pares = cKDTree(z).query_pairs(r=limiar, output_type="ndarray")
-    if len(pares) == 0:
+def _close_pairs(z, threshold):
+    """Pairs (i, j) with Euclidean distance < threshold, and the distances."""
+    pairs = cKDTree(z).query_pairs(r=threshold, output_type="ndarray")
+    if len(pairs) == 0:
         return np.empty((0, 2), dtype=int), np.empty(0)
-    d = np.linalg.norm(z[pares[:, 0]] - z[pares[:, 1]], axis=1)
-    return pares[d < limiar], d[d < limiar]
+    d = np.linalg.norm(z[pairs[:, 0]] - z[pairs[:, 1]], axis=1)
+    return pairs[d < threshold], d[d < threshold]
 
 
-def _menor_distancia(z):
+def _min_distance(z):
     d, _ = cKDTree(z).query(z, k=2)
     return float(np.min(d[:, 1]))
 
 
-def _corrigir_duplicatas(z, labels, aplicar):
-    """Conta os pares quase duplicados de z e, se `aplicar`, separa-os.
+def _fix_near_duplicates(z, labels, apply):
+    """Count the near-duplicate pairs of z and, if `apply`, separate them.
 
-    Pontos IDENTICOS nao sao perturbados: o TRACE os funde com np.unique antes
-    do alpha shape e eles nao causam a degeneracao. Separa-los cria justamente
-    posicoes distintas a ~1e-7, e no blood-transfusion (822 pares identicos)
-    isso zerou as seis footprints good. O jitter vale para POSICOES distintas a
-    menos do limiar; os pontos identicos de uma posicao recebem o mesmo
-    deslocamento e continuam identicos.
+    IDENTICAL points are not perturbed: TRACE merges them with np.unique before
+    the alpha shape and they do not cause the degeneracy. Separating them
+    creates exactly distinct positions ~1e-7 apart, and in blood-transfusion
+    (822 identical pairs) that zeroed the six good footprints. The jitter is
+    for DISTINCT positions closer than the threshold; the identical points of
+    a position get the same shift and remain identical.
 
-    Devolve (z_corrigido ou None, registro para run_info["trace_robustez"]).
+    Returns (corrected z or None, record for run_info["trace_robustness"]).
     """
     z = np.asarray(z, dtype=float)
-    pares, d = _pares_proximos(z, LIMIAR_DUPLICATA)
-    posicoes, inv = np.unique(z, axis=0, return_inverse=True)
+    pairs, d = _close_pairs(z, NEAR_DUPLICATE_THRESHOLD)
+    positions, inv = np.unique(z, axis=0, return_inverse=True)
     inv = np.asarray(inv).ravel()
-    pares_pos, _ = _pares_proximos(posicoes, LIMIAR_DUPLICATA)
-    registro = {
-        "limiar": LIMIAR_DUPLICATA,
-        "pares_quase_duplicados": int(len(pares)),
-        "pares_identicos": int(np.sum(d == 0)),
-        "pares_distintos_proximos": int(len(pares_pos)),
-        "menor_distancia_distintos_antes": (_menor_distancia(posicoes)
-                                            if len(posicoes) > 1 else None),
-        "regra": "jitter so em posicoes distintas a menos do limiar; pontos identicos "
-                 "nao sao separados (o TRACE os funde com np.unique)",
-        "jitter_aplicado": False,
+    position_pairs, _ = _close_pairs(positions, NEAR_DUPLICATE_THRESHOLD)
+    record = {
+        "threshold": NEAR_DUPLICATE_THRESHOLD,
+        "near_duplicate_pairs": int(len(pairs)),
+        "identical_pairs": int(np.sum(d == 0)),
+        "distinct_close_pairs": int(len(position_pairs)),
+        "min_distance_distinct_before": (_min_distance(positions)
+                                         if len(positions) > 1 else None),
+        "rule": "jitter only on distinct positions closer than the threshold; identical "
+                "points are not separated (TRACE merges them with np.unique)",
+        "jitter_applied": False,
     }
-    if len(pares_pos) == 0:
-        return None, registro
-    if not aplicar:
-        registro["motivo_sem_jitter"] = "fix_near_duplicates=False"
-        return None, registro
+    if len(position_pairs) == 0:
+        return None, record
+    if not apply:
+        record["reason_no_jitter"] = "fix_near_duplicates=False"
+        return None, record
 
-    idx = np.unique(pares_pos.ravel())
-    rng = np.random.default_rng(SEMENTE_JITTER)
-    deslocamento = np.zeros_like(posicoes)
-    deslocamento[idx] = rng.normal(scale=ESCALA_JITTER, size=(idx.size, z.shape[1]))
-    z_corr = z + deslocamento[inv]
-    pontos = np.flatnonzero(np.isin(inv, idx))
-    pares_depois, _ = _pares_proximos(posicoes + deslocamento, LIMIAR_DUPLICATA)
-    registro.update({
-        "jitter_aplicado": True,
-        "jitter_escala": ESCALA_JITTER,
-        "jitter_semente": SEMENTE_JITTER,
-        "jitter_distribuicao": "normal(0, escala) em cada coordenada, um sorteio por posicao",
-        "posicoes_perturbadas": int(idx.size),
-        "pontos_perturbados": int(pontos.size),
-        "rotulos_perturbados": [str(labels[i]) for i in pontos],
-        "deslocamento_maximo": float(np.max(np.linalg.norm(deslocamento[idx], axis=1))),
-        "menor_distancia_distintos_depois": _menor_distancia(posicoes + deslocamento),
-        "pares_distintos_proximos_depois": int(len(pares_depois)),
-        "aplicado_em": "so no TRACE, via run_stage(TraceStage, z=...); coordinates.csv "
-                       "sai com o z perturbado; PYTHIA usou o z do PILOT e CLOISTER nao usa z",
+    idx = np.unique(position_pairs.ravel())
+    rng = np.random.default_rng(JITTER_SEED)
+    shift = np.zeros_like(positions)
+    shift[idx] = rng.normal(scale=JITTER_SCALE, size=(idx.size, z.shape[1]))
+    z_fixed = z + shift[inv]
+    points = np.flatnonzero(np.isin(inv, idx))
+    pairs_after, _ = _close_pairs(positions + shift, NEAR_DUPLICATE_THRESHOLD)
+    record.update({
+        "jitter_applied": True,
+        "jitter_scale": JITTER_SCALE,
+        "jitter_seed": JITTER_SEED,
+        "jitter_distribution": "normal(0, scale) on each coordinate, one draw per position",
+        "perturbed_positions": int(idx.size),
+        "perturbed_points": int(points.size),
+        "perturbed_labels": [str(labels[i]) for i in points],
+        "max_shift": float(np.max(np.linalg.norm(shift[idx], axis=1))),
+        "min_distance_distinct_after": _min_distance(positions + shift),
+        "distinct_close_pairs_after": int(len(pairs_after)),
+        "applied_to": "TRACE only, via run_stage(TraceStage, z=...); coordinates.csv keeps "
+                      "the PILOT z and the perturbed z goes to coordinates_trace.csv; PYTHIA "
+                      "used the PILOT z and CLOISTER does not use z",
     })
-    return z_corr, registro
+    return z_fixed, record
 
 
 # --------------------------------------------------------------------------- #
 # sifted_report
 # --------------------------------------------------------------------------- #
-def _sobreviventes_correlacao(rho, pval, opts_sifted):
-    """Reproduz SiftedStage.select_features_by_performance (sifted.py:774-808).
+def _correlation_survivors(rho, pval, opts_sifted):
+    """Reproduces SiftedStage.select_features_by_performance (sifted.py:774-808).
 
-    Fica a feature mais correlacionada com cada algoritmo e toda feature com
-    |rho| >= sifted.rho e p <= sifted.pval para algum algoritmo.
+    Keeps the feature most correlated with each algorithm and every feature
+    with |rho| >= sifted.rho and p <= sifted.pval for some algorithm.
     """
-    filtrado = np.abs(rho)
-    filtrado[np.isnan(rho) | (pval > opts_sifted.pval)] = 0
-    ordenado = np.sort(filtrado, axis=0)[::-1, :]
-    linha = np.argsort(-filtrado, axis=0)
-    manter = np.zeros(rho.shape[0], dtype=bool)
-    manter[np.unique(linha[0, :])] = True
-    manter[np.unique(linha[ordenado >= opts_sifted.rho])] = True
-    return np.where(manter)[0]
+    filtered = np.abs(rho)
+    filtered[np.isnan(rho) | (pval > opts_sifted.pval)] = 0
+    ordered = np.sort(filtered, axis=0)[::-1, :]
+    row = np.argsort(-filtered, axis=0)
+    keep = np.zeros(rho.shape[0], dtype=bool)
+    keep[np.unique(row[0, :])] = True
+    keep[np.unique(row[ordered >= opts_sifted.rho])] = True
+    return np.where(keep)[0]
 
 
-def _sifted_report(model, feats_pre, feats_entrada, opts):
-    """Uma linha por feature de entrada; devolve (DataFrame, avisos)."""
+def _sifted_report(model, feats_pre, feats_input, opts):
+    """One row per input feature; returns (DataFrame, warnings)."""
     s = model.sifted
     algos = list(model.data.algo_labels)
     selvars = [int(i) for i in np.asarray(s.selvars).ravel()]
-    avisos = []
+    warns = []
     if [feats_pre[i] for i in selvars] != list(model.data.feat_labels):
-        avisos.append("sifted_report: selvars nao reproduz Model.data.feat_labels")
+        warns.append("sifted_report: selvars does not reproduce Model.data.feat_labels")
 
     rho = None if s.rho is None else np.asarray(s.rho, dtype=float)
     pval = None if s.pval is None else np.asarray(s.pval, dtype=float)
     if rho is not None and rho.shape[0] == len(feats_pre) and pval is not None:
-        sobreviventes = [int(i) for i in _sobreviventes_correlacao(rho, pval, opts.sifted)]
+        survivors = [int(i) for i in _correlation_survivors(rho, pval, opts.sifted)]
     else:
-        sobreviventes = list(range(len(feats_pre)))
+        survivors = list(range(len(feats_pre)))
         if rho is not None:
-            avisos.append("sifted_report: rho/pval sem uma linha por feature; "
-                          "filtro de correlacao nao reconstruido")
-    if not set(selvars) <= set(sobreviventes):
-        avisos.append("sifted_report: feature mantida fora dos sobreviventes da correlacao")
+            warns.append("sifted_report: rho/pval without one row per feature; "
+                         "correlation filter not reconstructed")
+    if not set(selvars) <= set(survivors):
+        warns.append("sifted_report: kept feature outside the correlation survivors")
 
-    cluster_de = {}
+    cluster_of = {}
     if s.clust is not None:
         clust = np.asarray(s.clust, dtype=bool)
-        if clust.shape[0] != len(sobreviventes):
-            avisos.append(f"sifted_report: clust tem {clust.shape[0]} linhas e a "
-                          f"reconstrucao da correlacao deu {len(sobreviventes)} features")
+        if clust.shape[0] != len(survivors):
+            warns.append(f"sifted_report: clust has {clust.shape[0]} rows and the "
+                         f"correlation reconstruction gave {len(survivors)} features")
         else:
-            for pos, i in enumerate(sobreviventes):
+            for pos, i in enumerate(survivors):
                 cols = np.flatnonzero(clust[pos])
                 if cols.size == 1:
-                    cluster_de[i] = int(cols[0]) + 1
-    mantidas_no_cluster = {}
+                    cluster_of[i] = int(cols[0]) + 1
+    kept_in_cluster = {}
     for i in selvars:
-        if i in cluster_de:
-            mantidas_no_cluster.setdefault(cluster_de[i], []).append(feats_pre[i])
-    for c, fs in mantidas_no_cluster.items():
+        if i in cluster_of:
+            kept_in_cluster.setdefault(cluster_of[i], []).append(feats_pre[i])
+    for c, fs in kept_in_cluster.items():
         if len(fs) != 1:
-            avisos.append(f"sifted_report: cluster {c} com {len(fs)} features mantidas")
+            warns.append(f"sifted_report: cluster {c} with {len(fs)} kept features")
 
-    linhas = []
-    for f in feats_entrada:
-        reg = {"feature": f, "status": None, "rho": np.nan, "rho_algo": None,
+    rows = []
+    for f in feats_input:
+        rec = {"feature": f, "status": None, "rho": np.nan, "rho_algo": None,
                "pval": np.nan, "n_algos_sig": np.nan, "cluster": None, "kept_instead": None}
         if f not in feats_pre:
-            reg["status"] = STATUS_PREPROCESSING
-            linhas.append(reg)
+            rec["status"] = STATUS_PREPROCESSING
+            rows.append(rec)
             continue
         i = feats_pre.index(f)
         if rho is not None and rho.shape[0] == len(feats_pre) and np.isfinite(rho[i]).any():
             j = int(np.nanargmax(np.abs(rho[i])))
-            reg["rho"], reg["rho_algo"] = float(rho[i, j]), algos[j]
+            rec["rho"], rec["rho_algo"] = float(rho[i, j]), algos[j]
             if pval is not None:
-                reg["pval"] = float(pval[i, j])
+                rec["pval"] = float(pval[i, j])
                 sig = (np.abs(rho[i]) >= opts.sifted.rho) & (pval[i] <= opts.sifted.pval)
-                reg["n_algos_sig"] = int(np.sum(sig))
-        reg["cluster"] = cluster_de.get(i)
+                rec["n_algos_sig"] = int(np.sum(sig))
+        rec["cluster"] = cluster_of.get(i)
         if i in selvars:
-            reg["status"] = STATUS_KEPT
-        elif i not in sobreviventes:
-            reg["status"] = STATUS_CORRELACAO
-        elif i in cluster_de:
-            reg["status"] = STATUS_REDUNDANCIA
-            reg["kept_instead"] = ";".join(mantidas_no_cluster.get(cluster_de[i], [])) or None
+            rec["status"] = STATUS_KEPT
+        elif i not in survivors:
+            rec["status"] = STATUS_CORRELATION
+        elif i in cluster_of:
+            rec["status"] = STATUS_REDUNDANCY
+            rec["kept_instead"] = ";".join(kept_in_cluster.get(cluster_of[i], [])) or None
         else:
-            reg["status"] = STATUS_INDETERMINADO
-            avisos.append(f"sifted_report: motivo do descarte de {f} nao reconstruido")
-        linhas.append(reg)
-    df = pd.DataFrame(linhas)
+            rec["status"] = STATUS_UNDETERMINED
+            warns.append(f"sifted_report: reason for dropping {f} not reconstructed")
+        rows.append(rec)
+    df = pd.DataFrame(rows)
     df["cluster"] = df["cluster"].astype("Int64")
     df["n_algos_sig"] = df["n_algos_sig"].astype("Int64")
-    return df, avisos
+    return df, warns
 
 
 # --------------------------------------------------------------------------- #
-# pythia_proba
+# per-instance files
 # --------------------------------------------------------------------------- #
-def _regra_bom(perf):
-    """Texto da regra de y_bin do PRELIM (prelim.py:120-170) para estas opcoes."""
+def _good_rule(perf):
+    """Text of the PRELIM y_bin rule (prelim.py:120-170) for these options."""
     eps = perf.epsilon
     if perf.max_perf:
-        return (f"bom = algo_* >= {eps}" if perf.abs_perf
-                else f"bom = 1 - algo_*/melhor <= {eps}")
-    return (f"bom = algo_* <= {eps}" if perf.abs_perf
-            else f"bom = algo_*/melhor - 1 <= {eps}")
+        return (f"good = algo_* >= {eps}" if perf.abs_perf
+                else f"good = 1 - algo_*/best <= {eps}")
+    return (f"good = algo_* <= {eps}" if perf.abs_perf
+            else f"good = algo_*/best - 1 <= {eps}")
 
 
-def _por_instancia(valores, labels, colunas):
-    """Mesmo layout do _write_array_to_csv do instancespace: indice Row = rotulo."""
-    return pd.DataFrame(np.asarray(valores), columns=colunas,
+def _per_instance(values, labels, columns):
+    """Same layout as instancespace's _write_array_to_csv: index Row = label."""
+    return pd.DataFrame(np.asarray(values), columns=columns,
                         index=pd.Index([str(x) for x in labels], name="Row"))
 
 
-def _gravar_coordenadas(outdir, labels, z_pilot, z_trace):
-    """coordinates.csv com o z do PILOT; coordinates_trace.csv so se houve jitter."""
+def _write_coordinates(outdir, labels, z_pilot, z_trace):
+    """coordinates.csv with the PILOT z; coordinates_trace.csv only if jitter was applied."""
     cols = [f"z_{i}" for i in range(1, z_pilot.shape[1] + 1)]
-    _por_instancia(z_pilot, labels, cols).to_csv(outdir / "coordinates.csv")
+    _per_instance(z_pilot, labels, cols).to_csv(outdir / "coordinates.csv")
     if z_trace is not None:
-        _por_instancia(z_trace, labels, cols).to_csv(outdir / "coordinates_trace.csv")
+        _per_instance(z_trace, labels, cols).to_csv(outdir / "coordinates_trace.csv")
 
 
-def _gravar_pythia(outdir, model, algos, labels):
-    """pythia_proba.csv, pythia_confusion.csv e pythia_selection.csv.
+def _write_pythia(outdir, model, algos, labels):
+    """pythia_proba.csv, pythia_confusion.csv and pythia_selection.csv.
 
-    Devolve (dict para run_info["pythia"], avisos)."""
+    Returns (dict for run_info["pythia"], warnings)."""
     p = model.pythia
     sub = np.asarray(p.pr0_sub, dtype=float)
     hat = np.asarray(p.pr0_hat, dtype=float)
     pd.concat([
-        _por_instancia(sub, labels, algos),
-        _por_instancia(hat, labels, [f"{a}{SUFIXO_HAT}" for a in algos]),
+        _per_instance(sub, labels, algos),
+        _per_instance(hat, labels, [f"{a}{HAT_SUFFIX}" for a in algos]),
     ], axis=1).to_csv(outdir / "pythia_proba.csv")
 
-    # cvcmat do treino (pythia.py:861-868): [tn, fp, fn, tp] de y_bin contra
-    # y_sub. O caminho de avaliacao (pythia.py:515) usa outra ordem, entao a
-    # ordem e conferida contra accuracy/precision/recall do proprio Model.
+    # training cvcmat (pythia.py:861-868): [tn, fp, fn, tp] of y_bin against
+    # y_sub. The evaluation path (pythia.py:515) uses another order, so the
+    # order is checked against the Model's own accuracy/precision/recall.
     cm = np.asarray(p.cvcmat, dtype=float)
     conf = pd.DataFrame(cm, columns=["tn", "fp", "fn", "tp"],
                         index=pd.Index(algos, name="Algorithm")).astype(int)
-    avisos = []
+    warns = []
     n = conf.sum(axis=1).replace(0, np.nan)
     with np.errstate(invalid="ignore", divide="ignore"):
-        calc = {
+        computed = {
             "accuracy": ((conf.tp + conf.tn) / n).to_numpy(),
             "precision": (conf.tp / (conf.tp + conf.fp)).to_numpy(),
             "recall": (conf.tp / (conf.tp + conf.fn)).to_numpy(),
         }
-    for nome, valores in calc.items():
-        ref = np.asarray(getattr(p, nome), dtype=float)
-        ok = np.isclose(valores, ref, equal_nan=True) | (np.isnan(valores) & (ref == 0))
+    for name, values in computed.items():
+        ref = np.asarray(getattr(p, name), dtype=float)
+        ok = np.isclose(values, ref, equal_nan=True) | (np.isnan(values) & (ref == 0))
         if not ok.all():
-            avisos.append(f"pythia_confusion: {nome} recalculado da matriz nao bate com Model.pythia.{nome}")
+            warns.append(f"pythia_confusion: {name} recomputed from the matrix does not "
+                         f"match Model.pythia.{name}")
     conf.to_csv(outdir / "pythia_confusion.csv")
 
-    def nome(i):
+    def name_of(i):
         return algos[i] if 0 <= int(i) < len(algos) else None
 
     sel0 = np.asarray(p.selection0).ravel()
     sel1 = np.asarray(p.selection1).ravel()
-    pd.DataFrame({"selection0": [nome(i) for i in sel0], "selection1": [nome(i) for i in sel1]},
+    pd.DataFrame({"selection0": [name_of(i) for i in sel0], "selection1": [name_of(i) for i in sel1]},
                  index=pd.Index([str(x) for x in labels], name="Row")
                  ).to_csv(outdir / "pythia_selection.csv")
 
     y_hat = np.asarray(p.y_hat, dtype=bool)
     info = {
-        "pares_instancia_algoritmo": int(y_hat.size),
-        "y_hat_discorda_de_pr0_hat": int(np.sum(y_hat != (hat < 0.5))),
-        "selection0_nenhum": int(np.sum(sel0 < 0)),
-        "selection1_difere_de_selection0": int(np.sum(sel0 != sel1)),
+        "instance_algorithm_pairs": int(y_hat.size),
+        "y_hat_disagrees_with_pr0_hat": int(np.sum(y_hat != (hat < 0.5))),
+        "selection0_none": int(np.sum(sel0 < 0)),
+        "selection1_differs_from_selection0": int(np.sum(sel0 != sel1)),
     }
-    return info, avisos
+    return info, warns
 
 
-def _gravar_pilot_r2(outdir, model):
-    """R^2 de cada coluna de [x, y] contra a reconstrucao z B' (pilot.py:478)."""
+def _write_pilot_r2(outdir, model):
+    """R^2 of each column of [x, y] against the reconstruction z B' (pilot.py:478)."""
     feats = [str(f) for f in model.data.feat_labels]
     algos = [str(a) for a in model.data.algo_labels]
     r2 = np.asarray(model.pilot.r2, dtype=float).ravel()
-    avisos = []
+    warns = []
     if len(r2) != len(feats) + len(algos):
-        avisos.append(f"pilot_r2: {len(r2)} valores para {len(feats)} features + {len(algos)} algoritmos")
-    nomes = (feats + algos)[:len(r2)]
-    tipos = (["feature"] * len(feats) + ["algorithm"] * len(algos))[:len(r2)]
-    pd.DataFrame({"variable": nomes, "kind": tipos, "r2": r2[:len(nomes)]}).to_csv(
+        warns.append(f"pilot_r2: {len(r2)} values for {len(feats)} features + {len(algos)} algorithms")
+    names = (feats + algos)[:len(r2)]
+    kinds = (["feature"] * len(feats) + ["algorithm"] * len(algos))[:len(r2)]
+    pd.DataFrame({"variable": names, "kind": kinds, "r2": r2[:len(names)]}).to_csv(
         outdir / "pilot_r2.csv", index=False)
-    return avisos
+    return warns
 
 
-def _gravar_sifted_extras(outdir, model, feats_pre, opts):
-    """sifted_correlations.csv (formato longo) e sifted_silhouette.csv."""
+def _write_sifted_extras(outdir, model, feats_pre, opts):
+    """sifted_correlations.csv (long format) and sifted_silhouette.csv."""
     s = model.sifted
     algos = [str(a) for a in model.data.algo_labels]
-    avisos = []
-    linhas = []
+    warns = []
+    rows = []
     if s.rho is not None:
         rho = np.asarray(s.rho, dtype=float)
         pval = None if s.pval is None else np.asarray(s.pval, dtype=float)
         if rho.shape != (len(feats_pre), len(algos)):
-            avisos.append(f"sifted_correlations: rho {rho.shape} nao e features x algoritmos")
+            warns.append(f"sifted_correlations: rho {rho.shape} is not features x algorithms")
         else:
             for i, f in enumerate(feats_pre):
                 for j, a in enumerate(algos):
-                    linhas.append((f, a, rho[i, j], np.nan if pval is None else pval[i, j]))
-    pd.DataFrame(linhas, columns=["feature", "algorithm", "rho", "pval"]).to_csv(
+                    rows.append((f, a, rho[i, j], np.nan if pval is None else pval[i, j]))
+    pd.DataFrame(rows, columns=["feature", "algorithm", "rho", "pval"]).to_csv(
         outdir / "sifted_correlations.csv", index=False)
 
     sil = pd.DataFrame(columns=["k", "silhouette", "used", "best"])
     if s.silhouette_scores:
         v = np.asarray(s.silhouette_scores, dtype=float)
-        ks = np.arange(K_MIN_SILHUETA, K_MIN_SILHUETA + len(v))
+        ks = np.arange(SILHOUETTE_K_MIN, SILHOUETTE_K_MIN + len(v))
         sil = pd.DataFrame({"k": ks, "silhouette": v, "used": ks == opts.sifted.k,
                             "best": np.arange(len(v)) == int(np.nanargmax(v))})
-        if s.clust is not None and len(v) != np.asarray(s.clust).shape[0] - K_MIN_SILHUETA:
-            avisos.append("sifted_silhouette: numero de k testados nao bate com clust")
+        if s.clust is not None and len(v) != np.asarray(s.clust).shape[0] - SILHOUETTE_K_MIN:
+            warns.append("sifted_silhouette: number of k tried does not match clust")
         if opts.sifted.k not in ks:
-            avisos.append(f"sifted_silhouette: k usado ({opts.sifted.k}) fora dos k testados")
+            warns.append(f"sifted_silhouette: k used ({opts.sifted.k}) outside the k tried")
     sil.to_csv(outdir / "sifted_silhouette.csv", index=False)
-    return avisos
+    return warns
 
 
-def _gravar_footprint_especial(outdir, nome, fp, espaco):
-    """footprint_<nome>.csv no esquema das demais (so se nao vazia) e metricas."""
+def _write_special_footprint(outdir, name, fp, space):
+    """footprint_<name>.csv in the schema of the others (only if not empty) and metrics."""
     from instancespace._serialisers import _footprint_boundary_frame
 
-    poligono = None if fp is None else fp.polygon
-    registro = {
-        "arquivo": None,
+    polygon = None if fp is None else fp.polygon
+    record = {
+        "file": None,
         "area": float(getattr(fp, "area", 0) or 0),
-        "densidade": float(getattr(fp, "density", 0) or 0),
-        "pureza": float(getattr(fp, "purity", 0) or 0),
-        "elementos": int(getattr(fp, "elements", 0) or 0),
-        "elementos_bons": int(getattr(fp, "good_elements", 0) or 0),
+        "density": float(getattr(fp, "density", 0) or 0),
+        "purity": float(getattr(fp, "purity", 0) or 0),
+        "elements": int(getattr(fp, "elements", 0) or 0),
+        "good_elements": int(getattr(fp, "good_elements", 0) or 0),
     }
-    if espaco is not None:
-        registro["area_normalizada"] = registro["area"] / espaco["area"] if espaco["area"] else 0.0
-        registro["densidade_normalizada"] = (registro["densidade"] / espaco["densidade"]
-                                             if espaco["densidade"] else 0.0)
-    if poligono is not None and hasattr(poligono, "is_empty") and not poligono.is_empty:
-        _footprint_boundary_frame(poligono).to_csv(outdir / f"footprint_{nome}.csv", index=False)
-        registro["arquivo"] = f"footprint_{nome}.csv"
-    return registro
+    if space is not None:
+        record["normalized_area"] = record["area"] / space["area"] if space["area"] else 0.0
+        record["normalized_density"] = (record["density"] / space["density"]
+                                        if space["density"] else 0.0)
+    if polygon is not None and hasattr(polygon, "is_empty") and not polygon.is_empty:
+        _footprint_boundary_frame(polygon).to_csv(outdir / f"footprint_{name}.csv", index=False)
+        record["file"] = f"footprint_{name}.csv"
+    return record
 
 
 # --------------------------------------------------------------------------- #
-# pasta de saida
+# output folder
 # --------------------------------------------------------------------------- #
-def _arquivos_do_engine(outdir):
-    donos = [p for p in outdir.iterdir() if p.name in ARQUIVOS_SAVE_TO_CSV + ARQUIVOS_EXTRAS]
-    for padrao in PADROES_FOOTPRINT:
-        donos += list(outdir.glob(padrao))
-    return donos
+def _engine_files(outdir):
+    owned = [p for p in outdir.iterdir() if p.name in SAVE_TO_CSV_FILES + EXTRA_FILES]
+    for pattern in FOOTPRINT_PATTERNS:
+        owned += list(outdir.glob(pattern))
+    return owned
 
 
-def _checar_pasta(outdir, metadata_path):
-    """Recusa, antes de rodar, a pasta do metadata de entrada e uma pasta com
-    arquivos de mesmo nome sem run_info.json do engine (saida de outra
-    ferramenta, por exemplo resultados/isa/<nome>/ do pyispace)."""
+def _check_folder(outdir, metadata_path):
+    """Before running, refuse the input metadata's folder and a folder with
+    files of the same names but no run_info.json from the engine (output of
+    another tool, e.g. resultados/isa/<name>/ from pyispace)."""
     if not outdir.exists():
         return
     if not outdir.is_dir():
-        raise NotADirectoryError(f"{outdir} existe e nao e pasta")
-    destino_meta = outdir / "metadata.csv"
-    if destino_meta.exists() and destino_meta.samefile(metadata_path):
-        raise ValueError(f"outdir {outdir} e a pasta do metadata de entrada; use outra pasta")
-    if not _arquivos_do_engine(outdir):
+        raise NotADirectoryError(f"{outdir} exists and is not a folder")
+    target_meta = outdir / "metadata.csv"
+    if target_meta.exists() and target_meta.samefile(metadata_path):
+        raise ValueError(f"outdir {outdir} is the input metadata's folder; use another folder")
+    if not _engine_files(outdir):
         return
     try:
-        dono = json.loads((outdir / "run_info.json").read_text()).get("gerado_por") == GERADO_POR
+        owner = json.loads((outdir / "run_info.json").read_text()).get("generated_by") == GENERATED_BY
     except (OSError, ValueError):
-        dono = False
-    if not dono:
-        raise ValueError(f"{outdir} tem arquivos que nao vieram de {GERADO_POR}; "
-                         "use uma pasta nova")
+        owner = False
+    if not owner:
+        raise ValueError(f"{outdir} has files that did not come from {GENERATED_BY}; "
+                         "use a new folder")
 
 
-def _limpar_pasta(outdir):
-    """Cria a pasta e apaga so os arquivos que o engine grava (uma footprint
-    que ficou vazia nesta execucao nao pode sobrar da anterior)."""
+def _clean_folder(outdir):
+    """Create the folder and delete only the files the engine writes (a
+    footprint that is empty in this run must not remain from the previous one)."""
     outdir.mkdir(parents=True, exist_ok=True)
-    for p in _arquivos_do_engine(outdir):
+    for p in _engine_files(outdir):
         p.unlink()
 
 
-def _arquivos_footprint(outdir, algo_labels):
-    """{algo: {"good": nome do arquivo ou None, "best": ...}} como gravado.
+def _footprint_files(outdir, algo_labels):
+    """{algo: {"good": file name or None, "best": ...}} as written.
 
-    save_to_csv nomeia os arquivos por _portable_stems (caracteres invalidos
-    viram "_", nomes longos sao truncados); o loader usa este mapa em vez de
-    adivinhar.
+    save_to_csv names the files with _portable_stems (invalid characters
+    become "_", long names are truncated); the loader uses this map instead of
+    guessing.
     """
     try:
         from instancespace._serialisers import _portable_stems
@@ -604,9 +610,9 @@ def _arquivos_footprint(outdir, algo_labels):
     out = {}
     for algo, stem in zip(algo_labels, stems):
         out[str(algo)] = {
-            tipo: (f"footprint_{stem}_{tipo}.csv"
-                   if (outdir / f"footprint_{stem}_{tipo}.csv").is_file() else None)
-            for tipo in ("good", "best")
+            kind: (f"footprint_{stem}_{kind}.csv"
+                   if (outdir / f"footprint_{stem}_{kind}.csv").is_file() else None)
+            for kind in ("good", "best")
         }
     return out
 
@@ -616,135 +622,133 @@ def _arquivos_footprint(outdir, algo_labels):
 # --------------------------------------------------------------------------- #
 def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
                       fix_near_duplicates=True):
-    """Roda o instancespace em `metadata_path` e grava a pasta `outdir`.
+    """Run instancespace on `metadata_path` and write the folder `outdir`.
 
-    Parametros
+    Parameters
     ----------
-    metadata_path : metadata.csv com ``instances``, ``source`` opcional,
-        ``feature_*``, ``algo_*`` e quaisquer outras colunas (anotacoes, que o
-        instancespace ignora e a copia em outdir/metadata.csv preserva).
-    outdir : pasta de saida; criada se preciso. Numa pasta de uma execucao
-        anterior do engine so os arquivos do engine sao apagados; pasta com
-        arquivos de outra origem e recusada.
-    options : dict por grupo sobreposto a DEFAULT_OPTIONS (ver build_options)
-        ou um InstanceSpaceOptions pronto.
-    progress : callable(nome_do_estagio) chamado ANTES de cada estagio, com
-        "PREPROCESSING", "PRELIM", "SIFTED", "PILOT", "PYTHIA", "CLOISTER" e
-        "TRACE", nessa ordem.
-    fix_near_duplicates : se False, so conta os pares quase duplicados da
-        projecao e nao aplica o jitter (para comparacao).
+    metadata_path : metadata.csv with ``instances``, optional ``source``,
+        ``feature_*``, ``algo_*`` and any other columns (annotations, which
+        instancespace ignores and the copy in outdir/metadata.csv keeps).
+    outdir : output folder; created if needed. In a folder from a previous
+        engine run only the engine's files are deleted; a folder with files
+        from another origin is refused.
+    options : dict per group overriding DEFAULT_OPTIONS (see build_options)
+        or a ready InstanceSpaceOptions.
+    progress : callable(stage_name) called BEFORE each stage, with
+        "PREPROCESSING", "PRELIM", "SIFTED", "PILOT", "PYTHIA", "CLOISTER" and
+        "TRACE", in that order.
+    fix_near_duplicates : if False, only count the near-duplicate pairs of the
+        projection and do not apply the jitter (for comparison).
 
-    Retorna o dict gravado em run_info.json. Um estagio que falha vira
-    RuntimeError com o nome do estagio; a pasta de saida so e tocada depois
-    que todos os estagios terminam.
+    Returns the dict written to run_info.json. A failing stage becomes a
+    RuntimeError naming the stage; the output folder is only touched after
+    every stage has finished.
     """
     metadata_path = Path(metadata_path)
     outdir = Path(outdir)
-    t_inicio = time.perf_counter()
-    _checar_pasta(outdir, metadata_path)
+    t_start = time.perf_counter()
+    _check_folder(outdir, metadata_path)
     opts = build_options(options)
-    meta = _ler_metadata(metadata_path)
-    auxiliares, tipos_declarados = _ler_auxiliares(metadata_path)
-    feats_entrada = [str(f) for f in meta.feature_names]
-    nomes_algo = [str(a) for a in meta.algorithm_names]
-    colidem = sorted(a for a in nomes_algo if a.endswith(SUFIXO_HAT) and a[:-len(SUFIXO_HAT)] in nomes_algo)
-    if colidem:
-        raise ValueError(f"algoritmos {colidem} colidem com as colunas <algo>{SUFIXO_HAT} de "
-                         "pythia_proba.csv; renomeie-os no metadata")
+    meta = _read_metadata(metadata_path)
+    auxiliary, declared_types = _read_auxiliary(metadata_path)
+    feats_input = [str(f) for f in meta.feature_names]
+    algo_names = [str(a) for a in meta.algorithm_names]
+    clash = sorted(a for a in algo_names if a.endswith(HAT_SUFFIX) and a[:-len(HAT_SUFFIX)] in algo_names)
+    if clash:
+        raise ValueError(f"algorithms {clash} clash with the <algo>{HAT_SUFFIX} columns of "
+                         "pythia_proba.csv; rename them in the metadata")
 
-    tempos, avisos_is, robustez = {}, [], {}
-    feats_pre = list(feats_entrada)
+    timings, is_warnings, robustness = {}, [], {}
+    feats_pre = list(feats_input)
     labels_z = [str(x) for x in meta.instance_labels]
-    sink = logger.add(lambda m: avisos_is.append(m.record["message"]), level="WARNING")
+    sink = logger.add(lambda m: is_warnings.append(m.record["message"]), level="WARNING")
     isp = InstanceSpace(meta, opts)
     try:
-        with warnings.catch_warnings(record=True) as capturados:
+        with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            z_corrigido = z_pilot = None
-            for nome, estagio in ESTAGIOS:
+            z_fixed = z_pilot = None
+            for name, stage in STAGES:
                 if progress is not None:
-                    progress(nome)
-                extra = {"z": z_corrigido} if nome == "TRACE" and z_corrigido is not None else {}
+                    progress(name)
+                extra = {"z": z_fixed} if name == "TRACE" and z_fixed is not None else {}
                 t0 = time.perf_counter()
                 try:
-                    saida = isp.run_stage(estagio, **extra)
+                    out = isp.run_stage(stage, **extra)
                 except Exception as exc:
-                    raise RuntimeError(f"instancespace falhou no estagio {nome}: {exc}") from exc
-                tempos[nome] = round(time.perf_counter() - t0, 3)
-                if nome == "PREPROCESSING":
-                    feats_pre = [str(f) for f in saida.feat_labels]
-                elif nome == "SIFTED":
-                    # rotulos alinhados com as linhas de x (e do z do PILOT)
-                    labels_z = [str(x) for x in saida.inst_labels]
-                elif nome == "PILOT":
-                    z_pilot = np.array(saida.z, dtype=float)
+                    raise RuntimeError(f"instancespace failed in stage {name}: {exc}") from exc
+                timings[name] = round(time.perf_counter() - t0, 3)
+                if name == "PREPROCESSING":
+                    feats_pre = [str(f) for f in out.feat_labels]
+                elif name == "SIFTED":
+                    # labels aligned with the rows of x (and of the PILOT z)
+                    labels_z = [str(x) for x in out.inst_labels]
+                elif name == "PILOT":
+                    z_pilot = np.array(out.z, dtype=float)
                     t0 = time.perf_counter()
-                    z_corrigido, robustez = _corrigir_duplicatas(
-                        saida.z, labels_z, fix_near_duplicates
-                    )
-                    tempos["deteccao_duplicatas"] = round(time.perf_counter() - t0, 3)
+                    z_fixed, robustness = _fix_near_duplicates(out.z, labels_z, fix_near_duplicates)
+                    timings["near_duplicate_check"] = round(time.perf_counter() - t0, 3)
             model = isp.model
     finally:
         logger.remove(sink)
         isp.close()
-    tempos["build_total"] = round(time.perf_counter() - t_inicio, 3)
+    timings["build_total"] = round(time.perf_counter() - t_start, 3)
 
-    # ------------------------------------------------------------- escrita
+    # ------------------------------------------------------------- writing
     t0 = time.perf_counter()
-    _checar_pasta(outdir, metadata_path)
-    _limpar_pasta(outdir)
+    _check_folder(outdir, metadata_path)
+    _clean_folder(outdir)
     model.save_to_csv(outdir)
     algos = [str(a) for a in model.data.algo_labels]
     labels = [str(x) for x in model.data.inst_labels]
-    _gravar_coordenadas(outdir, labels, z_pilot, z_corrigido)
+    _write_coordinates(outdir, labels, z_pilot, z_fixed)
     shutil.copyfile(metadata_path, outdir / "metadata.csv")
-    for nome, origem in auxiliares.items():
-        shutil.copyfile(origem, outdir / nome)
+    for name, source in auxiliary.items():
+        shutil.copyfile(source, outdir / name)
     (outdir / "run_options.json").write_text(
         json.dumps(dataclasses.asdict(opts), indent=2, default=_json_default)
     )
-    report, avisos = _sifted_report(model, feats_pre, feats_entrada, opts)
+    report, warns = _sifted_report(model, feats_pre, feats_input, opts)
     report.to_csv(outdir / "sifted_report.csv", index=False)
-    avisos += _gravar_sifted_extras(outdir, model, feats_pre, opts)
-    avisos += _gravar_pilot_r2(outdir, model)
-    info_pythia, avisos_pythia = _gravar_pythia(outdir, model, algos, labels)
-    avisos += avisos_pythia
-    espaco = _gravar_footprint_especial(outdir, "space", model.trace.space, None)
-    especiais = {
-        "space": espaco,
-        "hard": _gravar_footprint_especial(outdir, "hard", model.trace.hard, espaco),
+    warns += _write_sifted_extras(outdir, model, feats_pre, opts)
+    warns += _write_pilot_r2(outdir, model)
+    pythia_info, pythia_warns = _write_pythia(outdir, model, algos, labels)
+    warns += pythia_warns
+    space = _write_special_footprint(outdir, "space", model.trace.space, None)
+    special = {
+        "space": space,
+        "hard": _write_special_footprint(outdir, "hard", model.trace.hard, space),
     }
-    tempos["escrita"] = round(time.perf_counter() - t0, 3)
+    timings["writing"] = round(time.perf_counter() - t0, 3)
 
-    contagem = Counter((w.category.__name__, str(w.message)) for w in capturados)
+    counts = Counter((w.category.__name__, str(w.message)) for w in caught)
     info = {
-        "gerado_por": GERADO_POR,
-        "gerado_em": datetime.now().isoformat(timespec="seconds"),
+        "generated_by": GENERATED_BY,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
         "instancespace_version": version("instancespace"),
         "python": platform.python_version(),
-        "metadata_entrada": str(metadata_path.resolve()),
-        "n_instancias_entrada": int(len(meta.instance_labels)),
-        "n_instancias": int(len(model.data.inst_labels)),
-        "n_features_entrada": len(feats_entrada),
-        "n_features_selecionadas": len(model.data.feat_labels),
-        "algoritmos": [str(a) for a in model.data.algo_labels],
-        "tem_source": meta.instance_sources is not None,
-        "tipos_anotacao": {
-            "arquivo": "annotations.json" if "annotations.json" in auxiliares else None,
-            "declarados": tipos_declarados,
+        "input_metadata": str(metadata_path.resolve()),
+        "n_instances_input": int(len(meta.instance_labels)),
+        "n_instances": int(len(model.data.inst_labels)),
+        "n_features_input": len(feats_input),
+        "n_features_selected": len(model.data.feat_labels),
+        "algorithms": [str(a) for a in model.data.algo_labels],
+        "has_source": meta.instance_sources is not None,
+        "annotation_types": {
+            "file": "annotations.json" if "annotations.json" in auxiliary else None,
+            "declared": declared_types,
         },
-        "arquivos_auxiliares": sorted(auxiliares),
-        "tempos_s": tempos,
-        "trace_robustez": robustez,
-        "arquivos_footprint": _arquivos_footprint(outdir, model.data.algo_labels),
-        "footprints_especiais": especiais,
-        "pythia": info_pythia,
-        "regra_bom": _regra_bom(opts.perf),
-        "arquivos": sorted({p.name for p in _arquivos_do_engine(outdir)} | {"run_info.json"}),
-        "avisos": avisos,
-        "avisos_instancespace": list(dict.fromkeys(avisos_is)),
-        "warnings_python": [
-            {"categoria": c, "mensagem": m, "n": n} for (c, m), n in contagem.most_common()
+        "auxiliary_files": sorted(auxiliary),
+        "timings_s": timings,
+        "trace_robustness": robustness,
+        "footprint_files": _footprint_files(outdir, model.data.algo_labels),
+        "special_footprints": special,
+        "pythia": pythia_info,
+        "good_rule": _good_rule(opts.perf),
+        "files": sorted({p.name for p in _engine_files(outdir)} | {"run_info.json"}),
+        "warnings": warns,
+        "instancespace_warnings": list(dict.fromkeys(is_warnings)),
+        "python_warnings": [
+            {"category": c, "message": m, "n": n} for (c, m), n in counts.most_common()
         ],
     }
     (outdir / "run_info.json").write_text(
@@ -754,32 +758,32 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
 
 
 def main(argv=None):
-    """Linha de comando usada pela interface (isaspace.ui.execucao) para rodar o
-    engine em subprocesso. Na saida padrao, uma linha "@@isa estagio <NOME>"
-    antes de cada estagio e, ao final, "@@isa ok <outdir>" ou "@@isa erro
-    <mensagem>" (codigo de saida 1); o resto e log.
+    """Command line used by the UI (isaspace.ui.runner) to run the engine in a
+    subprocess. On standard output, one line "@@isa stage <NAME>" before each
+    stage and, at the end, "@@isa ok <outdir>" or "@@isa error <message>"
+    (exit code 1); everything else is log.
 
-    python -m isaspace.engine --metadata M.csv --outdir PASTA [--options JSON]
+    python -m isaspace.engine --metadata M.csv --outdir FOLDER [--options JSON]
     """
-    parser = argparse.ArgumentParser(description="Roda o instancespace sobre um metadata.csv")
+    parser = argparse.ArgumentParser(description="Run instancespace on a metadata.csv")
     parser.add_argument("--metadata", required=True)
     parser.add_argument("--outdir", required=True)
-    parser.add_argument("--options", default="{}", help="dict JSON sobreposto a DEFAULT_OPTIONS")
+    parser.add_argument("--options", default="{}", help="JSON dict overriding DEFAULT_OPTIONS")
     args = parser.parse_args(argv)
     logger.remove()
     logger.add(sys.stderr, level="INFO")
 
-    def sinal(texto):
-        print(f"{PREFIXO} {texto}", flush=True)
+    def signal(text):
+        print(f"{PREFIX} {text}", flush=True)
 
     try:
         run_instancespace(args.metadata, args.outdir, options=json.loads(args.options),
-                          progress=lambda estagio: sinal(f"estagio {estagio}"))
-    except Exception as exc:  # noqa: BLE001 -- a mensagem vai para a interface
+                          progress=lambda stage: signal(f"stage {stage}"))
+    except Exception as exc:  # noqa: BLE001 -- the message goes to the UI
         traceback.print_exc()
-        sinal("erro " + f"{type(exc).__name__}: {exc}".replace("\n", " "))
+        signal("error " + f"{type(exc).__name__}: {exc}".replace("\n", " "))
         return 1
-    sinal(f"ok {args.outdir}")
+    signal(f"ok {args.outdir}")
     return 0
 
 

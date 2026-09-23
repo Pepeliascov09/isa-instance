@@ -1,4 +1,4 @@
-"""Carregamento de datasets do OpenML e conversao para o formato do PyHard."""
+"""Loading of OpenML datasets and conversion to the PyHard format."""
 
 import numpy as np
 import openml
@@ -6,11 +6,11 @@ import pandas as pd
 
 
 def load_openml_dataset(dataset_id: int):
-    """Baixa um dataset do OpenML e retorna (X, y, meta).
+    """Download an OpenML dataset and return (X, y, meta).
 
-    X: pd.DataFrame com os atributos.
-    y: pd.Series com o rotulo (default_target_attribute).
-    meta: dict com id, name, n_instances, n_features, n_classes, target.
+    X: pd.DataFrame with the attributes.
+    y: pd.Series with the label (default_target_attribute).
+    meta: dict with id, name, n_instances, n_features, n_classes, target.
     """
     ds = openml.datasets.get_dataset(dataset_id)
     X, y, _, _ = ds.get_data(
@@ -28,14 +28,14 @@ def load_openml_dataset(dataset_id: int):
 
 
 def to_pyhard_frame(X, y, target_col="target"):
-    """Converte (X, y) para o DataFrame unico exigido pelo PyHard.
+    """Convert (X, y) to the single DataFrame PyHard requires.
 
-    Totalmente numerico, sem valores faltantes, com a coluna de rotulo incluida.
-    - object/category/bool viram codigos de categoria (float)
-    - demais colunas passam por pd.to_numeric(errors="coerce")
-    - faltantes preenchidos pela mediana da coluna
-    - colunas constantes (nunique <= 1) sao descartadas
-    - y vira codigos inteiros de categoria
+    Fully numeric, without missing values, with the label column included.
+    - object/category/bool become category codes (float)
+    - the other columns go through pd.to_numeric(errors="coerce")
+    - missing values are filled with the column median
+    - constant columns (nunique <= 1) are dropped
+    - y becomes integer category codes
     """
     df = pd.DataFrame(X).copy()
 

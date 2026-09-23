@@ -1,304 +1,418 @@
 # isa-instance
 
-Interface interativa para **Instance Space Analysis (ISA) em nível de observação
-individual**: cada ponto do espaço é uma instância de um dataset, não um dataset
-inteiro. Projeto de Iniciação Científica (IC7) no ITA, sob orientação da
-Profa. Ana Carolina Lorena.
+An interactive interface for **Instance Space Analysis (ISA)** on top of the
+[`instancespace`](https://github.com/andremun/pyInstanceSpace) package
+(Muñoz et al., arXiv:2501.16646). It accepts any metadata in the ISA format,
+runs the full ISA pipeline (PRELIM, SIFTED, PILOT, PYTHIA, CLOISTER, TRACE) in
+the background, and lets you explore the resulting instance space: where each
+algorithm performs well (footprints), what the algorithm selector recommends,
+which features were kept and why, and how any subset of instances you select
+compares with the rest.
 
-## O que é
+The input is a `metadata.csv` with:
 
-Um pipeline que parte de datasets do OpenML, calcula medidas de dificuldade por
-instância (PyHard) e o desempenho *out-of-fold* de um portfólio de seis
-classificadores, monta uma tabela por instância, projeta essa tabela num plano
-com PILOT e delimita *footprints* com TRACE (pyispace), e uma interface
-Panel/Bokeh que lê a pasta de saída no formato MATILDA e permite explorar o
-resultado. Os resultados para quatro datasets já estão versionados em
-`resultados/`, então o app abre logo depois do clone.
+- `instances`: a unique label per instance;
+- `source` (optional): the origin of each instance;
+- `feature_<name>`: numeric features of the instances (at least 3);
+- `algo_<name>`: numeric performance of each algorithm on each instance (at
+  least 2);
+- any other column: an **annotation**. The ISA pipeline ignores annotations,
+  but the interface keeps them, so you can color, group and filter the
+  instance space by them (a class label, a difficulty score, an id…).
 
-## O que a interface mostra
+Optional files next to it: `annotations.json` (the type of each annotation),
+`feature_info.csv` (a family per feature) and `degenerate_report.csv`
+(features dropped before ISA). The format of everything the engine writes is
+in [`docs/output_format.md`](docs/output_format.md).
 
-O app atual (`isaspace/ui/app.py`, Panel 1.x) tem seis abas sobre um estado
-global único: a seleção feita por *lasso* ou caixa na aba Instance Space e a
-variável de cor valem em todas.
+The repository ships four ready examples in `resultados/is/`, so the app opens
+right after cloning. They come from the use case that motivated the tool, an
+Iniciação Científica (IC7) project at ITA in which each instance is an
+individual observation of a dataset; see [Example: instances as individual
+observations](#example-instances-as-individual-observations).
 
-- **Instance Space**: espaço de instâncias (PILOT) colorido por qualquer
-  anotação, feature, desempenho ou coluna derivada; sobreposições de
-  *footprints*, da fronteira do CLOISTER e da *footprint* hard.
-- **Footprint Performance**: mapa com as *footprints* (good ou best, de um
-  algoritmo ou de todos) e a tabela `footprint_performance.csv`, com as vazias
-  ou de pureza abaixo do limiar sinalizadas.
-- **Algorithm Selection**: o que o PYTHIA e o CLOISTER produziram. Mapa colorido
-  pelo algoritmo recomendado (selection0, com *nenhum* como categoria), pela
-  concordância com o melhor observado ou pelo `pr0_sub` (P(ruim) fora da
-  amostra) de um algoritmo, com a fronteira do CLOISTER. Mostra também a
-  `svm_table` (acurácia, precisão e recall de CV, mais Oracle e Selector) e as
-  matrizes de confusão da validação cruzada. Um aviso aparece quando o seletor
-  recomenda o mesmo algoritmo para mais de 90% das instâncias.
-- **Distributions**: histograma, densidade ou violino de até seis variáveis,
-  agrupados por uma anotação categórica e divididos em selecionadas e não
-  selecionadas.
-- **Features**: uma linha por feature recebida, com o que o PILOT usou e por
-  que o resto caiu, o heatmap das correlações do SIFTED e a silhueta por k.
-- **Data Explorer**: scatter x-y com a cor global, filtro `pandas.query`,
-  botão "usar filtro como seleção" e tabela das linhas filtradas.
+## What the interface shows
 
-A barra lateral tem:
+Six tabs over a single global state: the selection made with the lasso (or
+box) in the Instance Space tab, and the color variable, apply to all of them.
 
-- o seletor de dataset, com `resultados/is/` e `runs/` em grupos separados;
-- o bloco **Novo instance space** (ver "Rodar um metadata novo");
-- os números do resultado e os tipos inferidos das anotações;
-- a exportação (todas as instâncias, a seleção, os rótulos de uma *footprint*).
+- **Instance Space**: the PILOT projection (z_1 × z_2), colored by any
+  annotation, feature, performance column or derived column (number of good
+  algorithms, beta-easy, best observed algorithm with ties shown as *tie*,
+  number of algorithms tied for the best, algorithm recommended by PYTHIA).
+  The PILOT r² of the color variable is shown next to the selector, with a
+  warning when the plane explains little of it. Overlays: the footprints of
+  one or all algorithms (good or best), the CLOISTER boundary and the hard
+  footprint.
+- **Footprint Performance**: the footprints on the map with the selection
+  highlighted, and `footprint_performance.csv` with each footprint's status
+  (*ok*, *suspect* when the purity is below `trace.purity`, drawn dashed, or
+  *empty*).
+- **Algorithm Selection**: what PYTHIA and CLOISTER produced. A map colored by
+  the recommended algorithm (selection0, with *none* as its own category), by
+  whether the recommended algorithm is good for the instance (*recommended
+  good*, *recommended bad*, *no recommendation*, following
+  `algorithm_bin.csv`), or by the out-of-sample probability `pr0_sub` of one
+  algorithm, with the CLOISTER boundary. Below it, the `svm_table` (CV
+  accuracy, precision and recall per algorithm, plus the Oracle and Selector
+  rows) and one cross-validation confusion matrix per algorithm. A warning
+  appears when the selector recommends the same algorithm for more than 90%
+  of the instances (a nearly trivial selector).
+- **Distributions**: histogram, density or violin of up to six numeric
+  variables, grouped by a categorical annotation and split into selected and
+  not selected instances.
+- **Features**: one row per received feature, with what went into PILOT and
+  why the rest was dropped (degenerate before ISA, no correlation with the
+  performance, or redundant within a SIFTED cluster), the feature × algorithm
+  correlation heatmap and the silhouette per k.
+- **Data Explorer**: an x-y scatter with the global color, a `pandas.query`
+  filter, a "Use filter as selection" button and a table of the filtered rows.
 
-O bloco de baixo troca conforme a aba ativa.
+The sidebar has:
 
-## Limitações (leia antes de interpretar)
+- the dataset selector, with `resultados/is/` and `runs/` (runs launched from
+  the interface) in separate groups;
+- the **New instance space** block, to upload a metadata and run ISA on it
+  (see below);
+- the numbers of the result (instances, features in PILOT, algorithms, the
+  "good" rule, whether TRACE needed jitter) and the annotation types that were
+  guessed, which can be changed for the session;
+- export buttons: all instances, the current selection, or the labels inside
+  a footprint. An exported CSV is itself valid metadata and can be uploaded
+  again.
 
-- O pyispace 0.3.7 implementa **PRELIM parcial** (recorte de outliers,
-  normalização Yeo-Johnson + z-score e binarização do desempenho), **PILOT** e
-  **TRACE**. Ele **não implementa SIFTED, CLOISTER nem PYTHIA**.
-- Consequências: **não há recomendador de algoritmo**, e a seleção de
-  features **não é SIFTED**: é apenas o descarte, feito em `isaspace/isa.py`,
-  das medidas que o pré-processamento do PRELIM tornaria constantes (IQR zero
-  antes do recorte de outliers). Toda medida que sobrevive a esse descarte
-  entra no PILOT.
-- As *footprints* do tipo **best são degeneradas nos quatro datasets**: em cada
-  um, dois ou três dos seis algoritmos ficam com polígono vazio e quase todos
-  os demais com pureza abaixo do limiar (a exceção recorrente é a árvore de
-  decisão). Isso é um **resultado observado** do TRACE com este portfólio e
-  estes dados, não um defeito da interface, que marca esses casos como "vazia"
-  ou "suspeita" na aba Footprint Performance.
-- O espaço de dados (PCA dos atributos padronizados) é só referência visual;
-  a análise está no espaço de instâncias do PILOT.
+The lower part of the sidebar changes with the active tab.
 
-## Instalação
+## Installation
 
-1. **Python 3.11**, não 3.12 nem 3.13. O `pyhard` 2.2.4 fixa `pandas~=1.5.0`,
-   e o pandas 1.5.x não tem *wheels* para Python 3.12 ou 3.13. Este projeto
-   foi desenvolvido com o 3.11.9.
+The app and the engine run in a Python **3.12** environment (`instancespace`
+0.3.0 requires Python >= 3.12, < 3.13). The versions below are the tested
+ones:
 
-   ```powershell
-   # Windows
-   py -3.11 -m venv .venv
-   .venv\Scripts\activate
-   ```
-
-   ```bash
-   # Linux / macOS
-   python3.11 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-2. Dependências com versões fixas (congeladas do ambiente que gerou os
-   resultados):
-
-   ```
-   pip install -r requirements.txt
-   ```
-
-3. **Passo obrigatório**: corrigir o pyispace para o Python 3.11.
-
-   ```
-   python scripts/apply_pyispace_patch.py
-   ```
-
-   Motivo: `pyispace/train.py` (versão 0.3.7) declara o dataclass `Data` com
-   dois campos cujo default é um array NumPy
-   (`field(init=False, default=np.array([]))`). Até o Python 3.10 o módulo
-   `dataclasses` só recusava defaults do tipo `list`, `dict` e `set`; a partir
-   do 3.11 ele recusa qualquer default não hasheável, e `np.ndarray` não é
-   hasheável. Resultado: o simples `import pyispace` morre com
-   `ValueError: mutable default <class 'numpy.ndarray'> for field Yraw is not
-   allowed: use default_factory`, e com ele os módulos `pyhard.integrator` e
-   `pyhard.cli`. O script troca os dois defaults por `default_factory`
-   (semântica idêntica), guarda um backup em `train.py.orig`, valida o import
-   num subprocesso e é idempotente. Qualquer reinstalação do pyispace desfaz
-   o patch, e o script precisa ser executado de novo. Detalhes em
-   `patches/README.md`.
-
-## Como gerar os dados
-
-Os resultados dos quatro datasets (iris, diabetes,
-blood-transfusion-service-center e hill-valley) já estão em `resultados/`.
-Para regenerar, na raiz do projeto e com o `.venv` ativo:
-
-1. `python run_table.py`: baixa os quatro datasets do OpenML (ids 61, 37, 1464
-   e 1479), calcula as medidas por instância e o desempenho *out-of-fold* do
-   portfólio (kNN, árvore, Naive Bayes, regressão logística, SVM RBF e random
-   forest; 5 folds, semente 42) e grava `resultados/table_<nome>.csv`.
-2. `python scripts/run_isa_all.py [nome ...]`: converte cada tabela para o
-   formato do pyispace, roda PILOT + TRACE e grava
-   `resultados/isa/<nome>/` no layout MATILDA (padrão: iris e diabetes; passe
-   os nomes para os outros).
-3. `python scripts/build_data_space.py [nome ...]`: gera
-   `resultados/isa/<nome>/data_space.csv` (PCA 2D dos atributos originais) para
-   o scatter da esquerda da aba Instance Space do app legado (padrão: os quatro).
-
-Para o app atual (`instancespace`):
-
-4. `python scripts/build_metadata.py [nome ...]` (no `.venv`): regrava só o
-   `resultados/isa/<nome>/metadata.csv` e, ao lado dele, `annotations.json`
-   (tipos das anotações), `degenerate_report.csv` (medidas descartadas antes do
-   engine) e `feature_info.csv` (família de cada medida), sem rodar o pyispace.
-5. `.venv-isa/bin/python scripts/run_is_all.py [nome ...]`: roda o
-   `instancespace` e grava `resultados/is/<nome>/` (formato em
-   `docs/output_format.md`; padrão: os quatro).
-
-## Como abrir o app
-
-O app atual (Panel 1.x) roda no `.venv-isa` (Python 3.12) e lê as saídas do
-`instancespace` em `resultados/is/` (geradas por `scripts/run_is_all.py`; formato
-em `docs/output_format.md`):
-
+```bash
+python3.12 -m venv .venv-isa
+.venv-isa/bin/python -m pip install instancespace==0.3.0 panel==1.9.4 \
+    holoviews==1.23.2 bokeh==3.9.2 param==2.4.2 pytest playwright
+.venv-isa/bin/python -m playwright install chromium    # only for the e2e tests
 ```
+
+A second environment, `.venv` with Python **3.11** (`requirements.txt`), is
+needed only to regenerate the IC7 example data with PyHard; see [Generating
+the example data](#generating-the-example-data).
+
+## Running the app
+
+From the project root:
+
+```bash
 .venv-isa/bin/python -m isaspace.ui.app
 ```
 
-Abre o navegador em <http://localhost:5006>. Opções:
+It opens the browser at <http://localhost:5006>. Options:
 
-- `--no-show`: não abre o navegador;
 - `--port N`;
-- `--root PASTA`: outra pasta no formato de `resultados/is/`;
-- `--runs PASTA`: onde gravar as execuções disparadas pela interface
-  (padrão `runs/`, fora do git).
+- `--no-show`: do not open the browser;
+- `--root FOLDER`: another folder of engine outputs, in the format of
+  `resultados/is/` (default `resultados/is`);
+- `--runs FOLDER`: where to write the runs launched from the interface
+  (default `runs/`, ignored by git).
 
-### Rodar um metadata novo
+The engine can also be used without the interface:
 
-No bloco **Novo instance space** da barra lateral:
+```bash
+.venv-isa/bin/python -m isaspace.engine --metadata metadata.csv --outdir out/ \
+    --options '{"perf": {"max_perf": true, "abs_perf": true, "epsilon": 0.5}}'
+```
 
-1. Envie um `metadata.csv` e, se quiser, `annotations.json` e
-   `feature_info.csv` (formato em `docs/output_format.md`). O arquivo é validado
-   na hora, e os erros aparecem em texto, sem traceback:
-   - coluna `instances` presente e sem rótulos repetidos;
-   - pelo menos 3 `feature_*` e 2 `algo_*`;
-   - valores numéricos;
-   - NaN reportado por coluna.
-2. Escolha a **direção** (maior ou menor é melhor), o **limiar** (absoluto ou
-   relativo ao melhor da instância) e o ε. Não há padrão: o botão Rodar ISA só
-   habilita depois da escolha. A prévia mostra a fração de instâncias boas por
-   algoritmo, com a mesma regra do PRELIM. Um aviso aparece se algum algoritmo
-   fica abaixo de 5% ou acima de 95%. Com limiar absoluto, inverter a direção
-   troca essa fração por 1 − fração, então o aviso aparece nas duas direções ou
-   em nenhuma. Ele sinaliza limiar mal posicionado, mas não detecta sozinho uma
-   direção trocada.
-3. Em "Opções avançadas" ficam o k do SIFTED e o `trace.usesim`.
-4. **Rodar ISA** dispara o engine em subprocesso, com progresso por estágio. A
-   interface continua usável enquanto roda. O resultado vai para
-   `runs/<nome>_<AAAAMMDD-HHMMSS>/`, com os arquivos enviados em `entrada/` e a
-   saída do subprocesso em `execucao.log`, e abre sozinho ao terminar.
+## Running ISA on a new metadata
 
-O tempo estimado vem de medidas em metadata sintético com 10 features e 6
-algoritmos, feitas por `scripts/medir_tempo_engine.py` num Apple M5:
+In the **New instance space** block of the sidebar:
 
-| instâncias | tempo |
+1. **Upload** a `metadata.csv` and, optionally, `annotations.json` and
+   `feature_info.csv`. The files are validated immediately, and problems are
+   shown as text, never as a traceback:
+   - the `instances` column exists and has no empty or repeated labels;
+   - at least 3 `feature_*` and 2 `algo_*` columns;
+   - `feature_*` and `algo_*` values are numeric and finite;
+   - NaN are reported per column;
+   - the declared annotation types match the columns.
+2. **Choose the performance rule.** The direction (*higher is better* or
+   *lower is better*), the threshold type (*absolute*, or *relative to the
+   instance's best*) and ε have **no default**: the Run ISA button stays
+   disabled until they are chosen. Then the block shows:
+   - a preview of the fraction of good instances per algorithm, computed with
+     the same rule as the instancespace PRELIM;
+   - a **degenerate ε threshold** warning when some algorithm has fewer than
+     5% or more than 95% good instances: with that ε, "good" is almost
+     constant for it, and its footprints and PYTHIA classifier carry little
+     information;
+   - before the Run button, the **consequence of the direction**: the
+     algorithms ranked by the mean of their `algo_*` column under the chosen
+     direction, with the best and the worst named, and the sentence "If this
+     ranking looks upside down for your problem, the direction is probably
+     wrong." Nothing tries to guess the direction for you.
+3. **Advanced options** (collapsed): the SIFTED k (default 6) and
+   `trace.usesim` (off: footprints of the observed performance, not of the
+   PYTHIA predictions).
+4. **Run ISA.** The engine runs in a subprocess, with progress per stage, and
+   the interface stays usable meanwhile. The result goes to
+   `runs/<name>_<YYYYMMDD-HHMMSS>/`, with the uploaded files in `input/` and
+   the full subprocess output in `run.log`, and it opens automatically when it
+   finishes. An error shows a one-line message; the traceback stays in
+   `run.log`.
+
+The block shows an estimated run time, from measurements with
+`scripts/measure_engine_time.py` on synthetic metadata with 10 features and 6
+algorithms (Apple M5, medians of 3 repetitions):
+
+| instances | time |
 |---|---|
 | 500 | ~10 s |
 | 1000 | ~24 s |
 | 2000 | ~77 s |
 
-O PYTHIA responde por ~50% (500) a ~87% (2000) do tempo e cresce com o número de algoritmos.
-A partir de 1000 instâncias o bloco mostra o aviso de tempo.
+PYTHIA takes from ~50% (500 instances) to ~87% (2000 instances) of the time
+and grows with the number of algorithms. From 1000 instances on, the block
+shows a time warning.
 
-O app anterior (Panel 0.14, pyispace, `resultados/isa/`) continua em
-`isaspace/ui/app_legacy.py` e roda no `.venv`: `python -m isaspace.ui.app_legacy`.
+## Output format
 
-## Problemas comuns
+Every folder the engine writes (`resultados/is/<name>/` or
+`runs/<name>_<date>/`) follows [`docs/output_format.md`](docs/output_format.md):
+the files instancespace itself saves, plus what the engine adds (`run_info.json`
+with provenance, timings and diagnostics; `sifted_report.csv`;
+`pythia_proba.csv`; `pythia_confusion.csv`; `pythia_selection.csv`;
+`pilot_r2.csv`; the space and hard footprints; the copied metadata and
+auxiliary files). The interface reads only these folders, through
+`isaspace/ui/loader_is.py`.
 
-- **A página parou de responder** (a troca de abas funciona, mas seletor,
-  sidebar, cabeçalho e gráficos não mudam): a sessão do Bokeh com o servidor
-  foi perdida, por exemplo porque o servidor foi reiniciado. Recarregue com F5
-  ou abra uma aba nova. A faixa vermelha no topo da página indica exatamente
-  isso; sem ela a página morta é indistinguível de uma viva.
-- **Depois de alterar o código do app**, feche a aba e abra uma nova em vez de
-  reaproveitar a antiga: o HTML da página traz um token de sessão que expira em
-  300 s, e uma aba restaurada do cache tenta reconectar com esse token vencido,
-  o que deixa a página só com a moldura do template e nada dentro.
+## Known limitations
 
-## Testes
+- **TRACE jitter.** The legacy TRACE alpha shape in instancespace 0.3.0
+  returns an empty polygon when the projection has *distinct* points about
+  1e-14 apart (identical points are harmless: TRACE merges them). In the
+  hill-valley example this zeroed the good footprints and the area of the
+  space. The engine therefore looks for distinct positions closer than 1e-6
+  after PILOT and, only for them, adds normal noise with standard deviation
+  1e-6 and a fixed seed (identical points get the same shift), and passes that
+  z **only to TRACE**. PILOT's z is what the interface draws
+  (`coordinates.csv`); the z TRACE used is kept in `coordinates_trace.csv`,
+  and everything is recorded in `run_info.json["trace_robustness"]`. Of the
+  four examples, only hill-valley needs it (27 points moved, by at most
+  2.4e-6).
+- **The performance direction is the user's choice.** Whether higher or lower
+  `algo_*` is better cannot be read from the data, and the interface does not
+  guess it. The <5% / >95% check detects a degenerate ε, not a wrong
+  direction: with an absolute threshold, flipping the direction turns each
+  fraction f into 1 − f (except for values exactly at ε), so the warning fires
+  in both directions or in neither (on iris it fires in both; on the other
+  three examples, in neither). The ranking by mean `algo_*` shows the
+  consequence of the choice so that a reversed direction is visible.
+- **Fixed SIFTED k.** instancespace clusters the features into a fixed number
+  of clusters, `sifted.k = 6` by default, and keeps one feature per cluster;
+  the k with the highest silhouette is only suggested in its log, not used.
+  In the examples the silhouette peaks at k = 3 (diabetes) and k = 4
+  (hill-valley) while k = 6 is used. The Features tab shows the silhouette per
+  k, and an upload can set k in the advanced options.
+- **Ties for the best observed algorithm.** `portfolio.csv` (and so the best
+  footprints) breaks ties for the best `algo_*` value at random. Ties are
+  common when the performance saturates: iris 123 of 150 instances, diabetes
+  217 of 768, blood-transfusion-service-center 215 of 748, hill-valley 54 of
+  1212. The interface shows those instances as *tie* in the "best observed
+  algorithm" color and offers the number of tied algorithms as a color.
+- **Best footprints are often empty or suspect** in the examples (iris: 4 of
+  the 6 best footprints empty and 1 suspect; hill-valley: 2 empty and 3
+  suspect), while every good footprint is *ok*. This is a result of TRACE with
+  these portfolios, not an interface defect; the Footprint Performance tab
+  flags those cases.
+- **A nearly trivial selector** is possible: on iris PYTHIA recommends
+  logistic regression for 143 of the 150 instances, and the Algorithm
+  Selection tab warns about it.
 
-Com o `.venv-isa` (pytest e Playwright; o Chromium do Playwright se instala com
-`.venv-isa/bin/python -m playwright install chromium`):
+## Tests
 
+With the `.venv-isa`:
+
+```bash
+.venv-isa/bin/python -m pytest tests/                 # everything, about 3 min
+.venv-isa/bin/python -m pytest tests/ -m "not e2e"    # the fast ones, seconds
 ```
-.venv-isa/bin/python -m pytest tests/                 # tudo, cerca de 2 min
-.venv-isa/bin/python -m pytest tests/ -m "not e2e"    # só os rápidos, segundos
+
+190 tests: 150 fast and 40 end-to-end.
+
+- `tests/test_loader_is.py` and `tests/test_engine.py` test the loader on
+  `resultados/is/` and on a synthetic folder (text labels, holes, name
+  collisions, ties), and the engine's validation of the auxiliary files.
+- `tests/test_upload.py` tests the upload validation, the fraction of good
+  instances (checked against instancespace's own
+  `compute_binary_performance` and against the written `algorithm_bin.csv`),
+  the mean ranking, the time estimate and the subprocess launcher.
+- `tests/test_app_e2e.py` starts the app with a temporary `runs/` folder and
+  drives it in a real Chromium (Playwright), with a new page per test, on the
+  four examples: lasso selection across tabs, global color, filters, export,
+  ties, the Algorithm Selection categories, the direction ranking, and two
+  full runs: the example metadata of the instancespace repository (downloaded
+  from GitHub, tag v0.3.0, to the pytest cache because of its non-commercial
+  license; skipped without network) and the cycle "export a selection → upload
+  it as metadata → run → same number of instances".
+
+## Common problems
+
+- **The page stopped responding** (switching tabs works, but selectors,
+  sidebar, header and plots do not change): the Bokeh session with the server
+  was lost, for instance because the server was restarted. Reload with F5 or
+  open a new tab. The red bar at the top of the page says exactly that; without
+  it a dead page is indistinguishable from a live one.
+- **After changing the app's code**, close the tab and open a new one instead
+  of reusing the old one: the page HTML carries a session token that expires
+  in 300 s, and a tab restored from cache tries to reconnect with the expired
+  token, which leaves only the template frame with nothing inside.
+- **A run from another browser session does not show up** in the dataset
+  selector: press "Reload dataset", which lists the folders again.
+
+## Example: instances as individual observations
+
+The use case behind the tool (IC7, ITA) is ISA at the level of **individual
+observations**: each point of the instance space is one row of a dataset, not
+a whole dataset. For four OpenML datasets (iris, diabetes,
+blood-transfusion-service-center and hill-valley):
+
+- the **features** are per-instance hardness measures computed with PyHard
+  (kDN, N1, CL, DCP, TD_P, Harmfulness, …); measures that the preprocessing
+  would make constant are dropped before ISA and listed in
+  `degenerate_report.csv`, and `feature_info.csv` tells the model-derived
+  measures from the geometric ones;
+- the **algorithms** are six classifiers (kNN, decision tree, Naive Bayes,
+  logistic regression, RBF SVM and random forest), and `algo_<name>` is the
+  out-of-fold probability each one gives to the true class (5 folds, seed
+  42); higher is better, and "good" is `algo_* >= 0.5`;
+- the **annotations** are `row_original` (the row index in the OpenML dataset,
+  an identifier), `class` (the original label), `ih` (instance hardness, 1 −
+  the mean probability of the true class) and `n_wrong` (how many classifiers
+  got the instance wrong).
+
+The results are in `resultados/is/<name>/`.
+
+### Generating the example data
+
+From the project root:
+
+1. With the `.venv` (Python 3.11): `python run_table.py` downloads the four
+   datasets from OpenML (ids 61, 37, 1464 and 1479), computes the measures and
+   the out-of-fold performance, and writes `resultados/table_<name>.csv`.
+2. With the `.venv`: `python scripts/build_metadata.py [name ...]` converts
+   each table into `resultados/isa/<name>/metadata.csv` plus
+   `annotations.json`, `degenerate_report.csv` and `feature_info.csv`.
+3. With the `.venv-isa`: `.venv-isa/bin/python scripts/run_is_all.py
+   [name ...]` runs the engine and writes `resultados/is/<name>/` (iris 2.6 s,
+   diabetes 15 s, blood-transfusion 13 s, hill-valley 32 s).
+
+The `.venv` needs Python **3.11**, not 3.12 or 3.13: `pyhard` 2.2.4 pins
+`pandas~=1.5.0`, which has no wheels for newer Pythons.
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python scripts/apply_pyispace_patch.py
 ```
 
-- `tests/test_loader_is.py` e `tests/test_engine.py` testam o loader e a
-  validação do engine sobre `resultados/is/`.
-- `tests/test_upload.py` testa a validação do upload e a fração de boas
-  (conferida contra `compute_binary_performance` do instancespace), além do
-  disparo do engine em subprocesso.
-- `tests/test_app_e2e.py` sobe o app, com uma pasta `runs/` temporária, e o usa
-  num Chromium real, com uma página nova por teste, nos quatro datasets.
-  Cobre também o upload do metadata de exemplo do instancespace (baixado do
-  GitHub, tag v0.3.0, para o cache do pytest; pulado sem rede) e o ciclo
-  "exportar seleção → subir como metadata → rodar".
+The last step patches `pyispace` 0.3.7 (a PyHard dependency) for Python 3.11:
+its `train.py` declares dataclass fields with a NumPy array as default, which
+Python 3.11 refuses (`ValueError: mutable default <class 'numpy.ndarray'> for
+field Yraw is not allowed`), so even `import pyispace` fails. The script
+switches them to `default_factory`, keeps a backup in `train.py.orig`, checks
+the import and is idempotent; reinstalling pyispace undoes it. Details in
+`patches/README.md`.
 
-`scripts/verify_browser.py` é o teste de regressão da interface legada. Ele controla
-um Edge ou Chrome headless pelo DevTools Protocol e, contra um app já servido,
-troca datasets, percorre as abas nos dois sentidos, mexe nos controles de cada
-aba e repete o caminho "abas antes do dataset", conferindo título, cabeçalho,
-sidebar e painel a cada passo:
+## Project structure
 
-```
-python -m isaspace.ui.app_legacy --no-show
-python scripts/verify_browser.py --url http://localhost:5006/ --desconexao 5012
-```
+The tool:
 
-## Estrutura de pastas
+- `isaspace/engine.py`: runs instancespace stage by stage and writes the
+  output folder (`docs/output_format.md`); also a command line
+  (`python -m isaspace.engine`).
+- `isaspace/ui/loader_is.py`: reads an output folder into an `IsResult`
+  (pandas and numpy only).
+- `isaspace/ui/app.py`: the six-tab interface (Panel 1.x).
+- `isaspace/ui/new_space.py`: the New instance space block of the sidebar.
+- `isaspace/ui/upload.py`: upload validation, fraction of good instances (the
+  PRELIM rule), mean ranking and time estimate (pandas and numpy only).
+- `isaspace/ui/runner.py`: the only UI module that knows the engine; it runs
+  `python -m isaspace.engine` in a subprocess and reads its progress.
+- `scripts/run_is_all.py`: the engine on the four examples, into
+  `resultados/is/`.
+- `scripts/measure_engine_time.py`: engine run time on synthetic metadata (the
+  basis of the time estimate).
+- `docs/output_format.md`: the contract between the engine and the interface.
+- `tests/`: loader, engine, upload and end-to-end tests.
+- `runs/` (ignored by git): runs launched from the interface.
 
-- `isaspace/intake.py`: carga do OpenML e conversão para o frame numérico do PyHard.
-- `isaspace/measures.py`: as medidas de dificuldade por instância (`ClassificationMeasures` do pyhard).
-- `isaspace/performance.py`: desempenho *out-of-fold* do portfólio de seis classificadores.
-- `isaspace/pipeline.py`: tabela unificada por instância (`feature_*`, `algo_*`, `proba_*`, `class`, `n_wrong`, `ih`).
-- `isaspace/projection.py` e `isaspace/footprint.py`: a projeção por PCA e as *footprints* por grade da versão anterior, mantidas para referência histórica e substituídas pelo PILOT e pelo TRACE do pyispace.
-- `isaspace/isa.py`: ponte com o pyispace: `to_isa_metadata` (descarte de degeneradas) e `run_isa` (PILOT + TRACE, gravação MATILDA e guarda-corpo do sentido de "bom").
-- `isaspace/app.py` e `isaspace/app_v2.py`: a interface de uma aba só (scatter ligado a um painel de detalhes) anterior à casca de quatro abas em `isaspace/ui/app.py`; os dois arquivos são idênticos e ficam como histórico.
-- `isaspace/ui/loader.py`: leitor da pasta MATILDA (pyispace) que devolve um único `IsaResult`.
-- `isaspace/ui/app_legacy.py`: a interface de quatro abas anterior (Panel 0.14, sobre `loader.py`).
-- `isaspace/engine.py`: roda o `instancespace` e grava `resultados/is/<nome>/` (`docs/output_format.md`).
-- `isaspace/ui/loader_is.py`: leitor da saída do engine (`IsResult`).
-- `isaspace/ui/app.py`: a interface das seis abas (Panel 1.x, sobre `loader_is.py`).
-- `isaspace/ui/novo.py`: o bloco "Novo instance space" da barra lateral.
-- `isaspace/ui/upload.py`: a validação do upload, a fração de boas (regra do PRELIM) e a estimativa de tempo (só pandas e numpy).
-- `isaspace/ui/execucao.py`: o único módulo da interface que conhece o engine. Dispara `python -m isaspace.engine` em subprocesso e lê o progresso.
-- `scripts/apply_pyispace_patch.py`: patch do pyispace para Python 3.11.
-- `scripts/run_isa_all.py`: PILOT + TRACE para cada dataset.
-- `scripts/build_metadata.py`: metadata do IC7 e arquivos auxiliares, sem o pyispace.
-- `scripts/run_is_all.py`: `instancespace` para cada dataset, em `resultados/is/`.
-- `scripts/medir_tempo_engine.py`: tempo do engine em metadata sintético (base da estimativa de tempo do upload).
-- `docs/output_format.md`: contrato da pasta de saída entre o engine e a interface.
-- `tests/`: testes do loader, do engine e de ponta a ponta do app.
-- `scripts/build_data_space.py`: espaço de dados (PCA) para a interface.
-- `scripts/verify_browser.py`: teste de regressão da interface no navegador.
-- `scripts/exploratorio/`: os dez scripts de experimento da primeira fase (demo, diagnóstico, contraste com meta-features via PyMFE, transferência entre datasets, e as versões antigas de projeção por PCA e *footprint* por grade); rodam da raiz com `python -m scripts.exploratorio.<nome>` e seus números estão em `resumo.md`.
-- `run_table.py`: gera `resultados/table_<nome>.csv` (passo 1 de "Como gerar os dados"); é o único script da primeira fase que continua no pipeline.
-- `patches/README.md`: descrição do bug do pyispace e do patch.
-- `resultados/`: `table_<nome>.csv`, `isa/<nome>/` (saídas MATILDA), `is/<nome>/` (saídas do `instancespace`) e PNGs dos experimentos iniciais.
-- `runs/` (fora do git): execuções disparadas pela interface.
-- `resumo.md`: resumo técnico dos resultados da primeira fase.
-- `requirements.txt`: dependências com versões fixas.
+`isaspace/ui/` is deliberately independent of the computing backend: the
+interface only reads the engine's output folders through `loader_is.py`; it
+does not import instancespace, pyispace, pyhard or scikit-learn; only
+`runner.py` knows the engine, and runs it in a subprocess; whatever a folder
+lacks is produced by the engine or the scripts, never by the interface.
 
-`isaspace/ui/` é deliberadamente independente do backend de cálculo:
+The IC7 data generation:
 
-- a interface lê as pastas de saída do engine via `loader_is.py`;
-- ela não importa instancespace, pyispace, pyhard nem scikit-learn;
-- só `execucao.py` conhece o engine, e o roda em subprocesso;
-- o que faltar numa pasta é gerado pelo engine ou pelos scripts, nunca pela
-  interface.
+- `isaspace/intake.py`: OpenML loading and conversion to PyHard's numeric
+  frame.
+- `isaspace/measures.py`: the per-instance hardness measures (PyHard's
+  `ClassificationMeasures`).
+- `isaspace/performance.py`: out-of-fold performance of the six-classifier
+  portfolio.
+- `isaspace/pipeline.py`: the per-instance table (`feature_*`, `algo_*`,
+  `proba_*`, `class`, `n_wrong`, `ih`).
+- `isaspace/isa.py`: `to_isa_metadata` and `write_metadata` (metadata and
+  auxiliary files, dropping degenerate measures) and `run_isa` (the legacy
+  pyispace PILOT + TRACE, with a guard against an inverted "good").
+- `run_table.py`: writes `resultados/table_<name>.csv`.
+- `scripts/build_metadata.py`: writes the metadata and auxiliary files into
+  `resultados/isa/<name>/`.
+- `scripts/run_isa_all.py`: the legacy pyispace PILOT + TRACE into
+  `resultados/isa/<name>/` (for the legacy app).
+- `resultados/`: `table_<name>.csv`, `isa/<name>/` (metadata and the legacy
+  pyispace outputs), `is/<name>/` (engine outputs) and the PNGs of the first
+  experiments. The folder keeps its Portuguese name.
 
-(O app legado, `app_legacy.py`, lê o formato MATILDA de `resultados/isa/`.)
+**Legacy, in Portuguese, kept as they are** (earlier phases of the project,
+before the move to instancespace; they are not maintained):
 
-## Referências
+- `isaspace/ui/app_legacy.py` (Panel 0.14, pyispace, `.venv`:
+  `python -m isaspace.ui.app_legacy`) with its reader `isaspace/ui/loader.py`
+  (the MATILDA folders of `resultados/isa/`);
+- `isaspace/app.py` and `isaspace/app_v2.py`: the earlier one-tab interface
+  (identical files);
+- `isaspace/projection.py` and `isaspace/footprint.py`: the earlier PCA
+  projection and grid footprints, replaced by PILOT and TRACE;
+- `scripts/exploratorio/`: the ten experiment scripts of the first phase
+  (run from the root with `python -m scripts.exploratorio.<name>`), whose
+  numbers are in `resumo.md`;
+- `scripts/verify_browser.py`: the browser regression test of the legacy app;
+- `scripts/build_data_space.py`: the PCA data space of the legacy app;
+- `scripts/apply_pyispace_patch.py` and `patches/README.md`: the pyispace
+  patch for Python 3.11;
+- `resumo.md`: technical summary of the first phase.
 
+## Credits
+
+Developed as an Iniciação Científica (IC7) project at ITA (Instituto
+Tecnológico de Aeronáutica), advised by Profa. Ana Carolina Lorena. The ISA
+pipeline itself is the `instancespace` package by Mario Andrés Muñoz and
+collaborators.
+
+## References
+
+- instancespace: Muñoz et al., arXiv:2501.16646. Code:
+  <https://github.com/andremun/pyInstanceSpace>.
 - Smith-Miles, K.; Muñoz, M. A. *Instance Space Analysis for Algorithm
   Testing: Methodology and Software Tools*. ACM Computing Surveys, 55(12),
   2023.
 - PyHard: Paiva, P. Y. A.; Moreno, C. C.; Smith-Miles, K.; Valeriano, M. G.;
   Lorena, A. C. *Relating instance hardness to classification performance in a
-  dataset: a visual approach*. Machine Learning, 111, 2022. Código:
+  dataset: a visual approach*. Machine Learning, 111, 2022. Code:
   <https://gitlab.com/ita-ml/pyhard>.
-- pyispace: implementação em Python de partes do MATILDA (PRELIM parcial,
-  PILOT e TRACE). <https://gitlab.com/ita-ml/pyispace>.
-- MATILDA / InstanceSpace (referência em MATLAB):
+- pyispace: a Python implementation of parts of MATILDA (partial PRELIM, PILOT
+  and TRACE), used by the legacy app. <https://gitlab.com/ita-ml/pyispace>.
+- MATILDA / InstanceSpace (MATLAB reference):
   <https://github.com/andremun/InstanceSpace>.

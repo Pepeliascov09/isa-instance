@@ -1,8 +1,8 @@
-"""Validacao dos arquivos auxiliares pelo engine (sem rodar o pipeline).
+"""Validation of the auxiliary files by the engine (without running the pipeline).
 
-run_instancespace le e valida annotations.json, degenerate_report.csv e
-feature_info.csv antes do build; um erro ali tem de aparecer em segundos, nao
-depois do PYTHIA. Precisa do .venv-isa (importa instancespace).
+run_instancespace reads and validates annotations.json, degenerate_report.csv
+and feature_info.csv before the build; an error there must show up in seconds,
+not after PYTHIA. Needs the .venv-isa (imports instancespace).
 """
 
 import json
@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
-RAIZ = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 engine = pytest.importorskip("isaspace.engine")
 
 METADATA = (
-    "instances,classe,peso,feature_a,feature_b,feature_c,algo_x,algo_y\n"
+    "instances,label,weight,feature_a,feature_b,feature_c,algo_x,algo_y\n"
     + "\n".join(f"i{k},{'ab'[k % 2]},{k},{k * 0.1},{(k * 7) % 5},{k % 3},{0.1 * (k % 9)},{0.9 - 0.1 * (k % 9)}"
                 for k in range(30))
     + "\n"
@@ -26,51 +26,59 @@ METADATA = (
 
 
 @pytest.fixture
-def entrada(tmp_path):
-    pasta = tmp_path / "entrada"
-    pasta.mkdir()
-    (pasta / "metadata.csv").write_text(METADATA)
-    return pasta
+def inputs(tmp_path):
+    folder = tmp_path / "input"
+    folder.mkdir()
+    (folder / "metadata.csv").write_text(METADATA)
+    return folder
 
 
-def test_sem_auxiliares(entrada):
-    presentes, tipos = engine._ler_auxiliares(entrada / "metadata.csv")
-    assert presentes == {} and tipos == {}
+def test_without_auxiliary_files(inputs):
+    present, types = engine._read_auxiliary(inputs / "metadata.csv")
+    assert present == {} and types == {}
 
 
-def test_auxiliares_validos(entrada):
-    (entrada / "annotations.json").write_text(json.dumps({"classe": "categorica", "peso": "identifier"}))
-    (entrada / "degenerate_report.csv").write_text("feature,var_bruta,iqr,motivo\nd,0.0,0.0,constante\n")
-    (entrada / "feature_info.csv").write_text("feature,family\na,f1\nb,f1\nc,f2\nd,f2\n")
-    presentes, tipos = engine._ler_auxiliares(entrada / "metadata.csv")
-    assert sorted(presentes) == ["annotations.json", "degenerate_report.csv", "feature_info.csv"]
-    assert tipos == {"classe": "categorica", "peso": "identifier"}
+def test_valid_auxiliary_files(inputs):
+    (inputs / "annotations.json").write_text(json.dumps({"label": "categorical", "weight": "identifier"}))
+    (inputs / "degenerate_report.csv").write_text("feature,raw_variance,iqr,reason\nd,0.0,0.0,constant\n")
+    (inputs / "feature_info.csv").write_text("feature,family\na,f1\nb,f1\nc,f2\nd,f2\n")
+    present, types = engine._read_auxiliary(inputs / "metadata.csv")
+    assert sorted(present) == ["annotations.json", "degenerate_report.csv", "feature_info.csv"]
+    assert types == {"label": "categorical", "weight": "identifier"}
 
 
-@pytest.mark.parametrize("conteudo, erro", [
-    ({"classe": "numerica"}, "não numéricos"),
-    ({"peso": "texto"}, "não é um de"),
-    ({"feature_a": "numerica"}, "não é uma coluna de anotação"),
-    ({"inexistente": "numerica"}, "não é uma coluna de anotação"),
-    (["classe"], "objeto"),
+@pytest.mark.parametrize("content, error", [
+    ({"label": "numeric"}, "non-numeric"),
+    ({"weight": "text"}, "is not one of"),
+    ({"feature_a": "numeric"}, "is not an annotation column"),
+    ({"missing": "numeric"}, "is not an annotation column"),
+    (["label"], "object"),
 ])
-def test_annotations_json_invalido_falha_antes_de_rodar(entrada, tmp_path, conteudo, erro):
-    (entrada / "annotations.json").write_text(json.dumps(conteudo))
+def test_invalid_annotations_json_fails_before_running(inputs, tmp_path, content, error):
+    (inputs / "annotations.json").write_text(json.dumps(content))
     t0 = time.perf_counter()
-    with pytest.raises(ValueError, match=erro):
-        engine.run_instancespace(entrada / "metadata.csv", tmp_path / "saida")
+    with pytest.raises(ValueError, match=error):
+        engine.run_instancespace(inputs / "metadata.csv", tmp_path / "out")
     assert time.perf_counter() - t0 < 5
-    assert not (tmp_path / "saida").exists()
+    assert not (tmp_path / "out").exists()
 
 
-def test_inteira_com_valores_fracionarios_e_erro(entrada):
-    (entrada / "metadata.csv").write_text(METADATA.replace(",3,0.30", ",3.5,0.30"))
-    (entrada / "annotations.json").write_text(json.dumps({"peso": "numerica_inteira"}))
-    with pytest.raises(ValueError, match="não inteiros"):
-        engine._ler_auxiliares(entrada / "metadata.csv")
+def test_integer_with_fractional_values_is_an_error(inputs):
+    (inputs / "metadata.csv").write_text(METADATA.replace(",3,0.30", ",3.5,0.30"))
+    (inputs / "annotations.json").write_text(json.dumps({"weight": "integer"}))
+    with pytest.raises(ValueError, match="non-integer"):
+        engine._read_auxiliary(inputs / "metadata.csv")
 
 
-def test_relatorio_sem_colunas_obrigatorias_e_erro(entrada):
-    (entrada / "degenerate_report.csv").write_text("feature,motivo\nd,constante\n")
-    with pytest.raises(ValueError, match="faltam as colunas"):
-        engine._ler_auxiliares(entrada / "metadata.csv")
+def test_report_without_required_columns_is_an_error(inputs):
+    (inputs / "degenerate_report.csv").write_text("feature,reason\nd,constant\n")
+    with pytest.raises(ValueError, match="missing columns"):
+        engine._read_auxiliary(inputs / "metadata.csv")
+
+
+def test_folder_from_another_tool_is_refused(inputs, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "coordinates.csv").write_text("Row,z_1,z_2\n1,0,0\n")
+    with pytest.raises(ValueError, match="did not come from"):
+        engine.run_instancespace(inputs / "metadata.csv", other)

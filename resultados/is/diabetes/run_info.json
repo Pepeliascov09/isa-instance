@@ -1,14 +1,14 @@
 {
-  "gerado_por": "isaspace.engine.run_instancespace",
-  "gerado_em": "2026-09-22T20:40:48",
+  "generated_by": "isaspace.engine.run_instancespace",
+  "generated_at": "2026-09-23T01:15:33",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
-  "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/diabetes/metadata.csv",
-  "n_instancias_entrada": 768,
-  "n_instancias": 768,
-  "n_features_entrada": 18,
-  "n_features_selecionadas": 6,
-  "algoritmos": [
+  "input_metadata": "/Users/natanpepeliascov/isa-instance/resultados/isa/diabetes/metadata.csv",
+  "n_instances_input": 768,
+  "n_instances": 768,
+  "n_features_input": 18,
+  "n_features_selected": 6,
+  "algorithms": [
     "knn",
     "tree",
     "nb",
@@ -16,43 +16,43 @@
     "svm_rbf",
     "rf"
   ],
-  "tem_source": false,
-  "tipos_anotacao": {
-    "arquivo": "annotations.json",
-    "declarados": {
+  "has_source": false,
+  "annotation_types": {
+    "file": "annotations.json",
+    "declared": {
       "row_original": "identifier",
-      "class": "categorica",
-      "ih": "numerica",
-      "n_wrong": "numerica_inteira"
+      "class": "categorical",
+      "ih": "numeric",
+      "n_wrong": "integer"
     }
   },
-  "arquivos_auxiliares": [
+  "auxiliary_files": [
     "annotations.json",
     "degenerate_report.csv",
     "feature_info.csv"
   ],
-  "tempos_s": {
+  "timings_s": {
     "PREPROCESSING": 0.0,
-    "PRELIM": 0.266,
-    "SIFTED": 1.61,
-    "PILOT": 1.514,
-    "deteccao_duplicatas": 0.001,
-    "PYTHIA": 8.94,
+    "PRELIM": 0.264,
+    "SIFTED": 1.65,
+    "PILOT": 1.557,
+    "near_duplicate_check": 0.001,
+    "PYTHIA": 8.775,
     "CLOISTER": 0.003,
-    "TRACE": 3.151,
-    "build_total": 15.494,
-    "escrita": 0.034
+    "TRACE": 3.098,
+    "build_total": 15.357,
+    "writing": 0.026
   },
-  "trace_robustez": {
-    "limiar": 1e-06,
-    "pares_quase_duplicados": 0,
-    "pares_identicos": 0,
-    "pares_distintos_proximos": 0,
-    "menor_distancia_distintos_antes": 0.0023205452482510614,
-    "regra": "jitter so em posicoes distintas a menos do limiar; pontos identicos nao sao separados (o TRACE os funde com np.unique)",
-    "jitter_aplicado": false
+  "trace_robustness": {
+    "threshold": 1e-06,
+    "near_duplicate_pairs": 0,
+    "identical_pairs": 0,
+    "distinct_close_pairs": 0,
+    "min_distance_distinct_before": 0.0023205452482510614,
+    "rule": "jitter only on distinct positions closer than the threshold; identical points are not separated (TRACE merges them with np.unique)",
+    "jitter_applied": false
   },
-  "arquivos_footprint": {
+  "footprint_files": {
     "knn": {
       "good": "footprint_knn_good.csv",
       "best": "footprint_knn_best.csv"
@@ -78,34 +78,34 @@
       "best": "footprint_rf_best.csv"
     }
   },
-  "footprints_especiais": {
+  "special_footprints": {
     "space": {
-      "arquivo": "footprint_space.csv",
+      "file": "footprint_space.csv",
       "area": 14.69262178157454,
-      "densidade": 50.773783677977086,
-      "pureza": 1.0,
-      "elementos": 746,
-      "elementos_bons": 746
+      "density": 50.773783677977086,
+      "purity": 1.0,
+      "elements": 746,
+      "good_elements": 746
     },
     "hard": {
-      "arquivo": "footprint_hard.csv",
+      "file": "footprint_hard.csv",
       "area": 4.206700608934902,
-      "densidade": 43.97745815498867,
-      "pureza": 0.8054054054054054,
-      "elementos": 185,
-      "elementos_bons": 149,
-      "area_normalizada": 0.2863138159732912,
-      "densidade_normalizada": 0.8661449860405755
+      "density": 43.97745815498867,
+      "purity": 0.8054054054054054,
+      "elements": 185,
+      "good_elements": 149,
+      "normalized_area": 0.2863138159732912,
+      "normalized_density": 0.8661449860405755
     }
   },
   "pythia": {
-    "pares_instancia_algoritmo": 4608,
-    "y_hat_discorda_de_pr0_hat": 82,
-    "selection0_nenhum": 125,
-    "selection1_difere_de_selection0": 125
+    "instance_algorithm_pairs": 4608,
+    "y_hat_disagrees_with_pr0_hat": 82,
+    "selection0_none": 125,
+    "selection1_differs_from_selection0": 125
   },
-  "regra_bom": "bom = algo_* >= 0.5",
-  "arquivos": [
+  "good_rule": "good = algo_* >= 0.5",
+  "files": [
     "algorithm_bin.csv",
     "algorithm_process.csv",
     "algorithm_raw.csv",
@@ -149,22 +149,22 @@
     "sifted_silhouette.csv",
     "svm_table.csv"
   ],
-  "avisos": [],
-  "avisos_instancespace": [],
-  "warnings_python": [
+  "warnings": [],
+  "instancespace_warnings": [],
+  "python_warnings": [
     {
-      "categoria": "DeprecationWarning",
-      "mensagem": "Conversion of an array with ndim > 0 to a scalar is deprecated, and will error in future. Ensure you extract a single element from your array before performing this operation. (Deprecated NumPy 1.25.)",
+      "category": "DeprecationWarning",
+      "message": "Conversion of an array with ndim > 0 to a scalar is deprecated, and will error in future. Ensure you extract a single element from your array before performing this operation. (Deprecated NumPy 1.25.)",
       "n": 1332
     },
     {
-      "categoria": "FutureWarning",
-      "mensagem": "The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`",
+      "category": "FutureWarning",
+      "message": "The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`",
       "n": 666
     },
     {
-      "categoria": "UserWarning",
-      "mensagem": "The balance properties of Sobol' points require n to be a power of 2.",
+      "category": "UserWarning",
+      "message": "The balance properties of Sobol' points require n to be a power of 2.",
       "n": 6
     }
   ]

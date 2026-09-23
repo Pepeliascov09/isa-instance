@@ -1,4 +1,4 @@
-feature,var_bruta,iqr,motivo
-MV,0.0857657885455438,0.0,IQR = 0: bound_outliers (mediana +- 5*IQR) colapsa a coluna numa constante
-CB,0.022134926409778183,0.0,IQR = 0: bound_outliers (mediana +- 5*IQR) colapsa a coluna numa constante
-F1,0.0012398258100031457,0.0,IQR = 0: bound_outliers (mediana +- 5*IQR) colapsa a coluna numa constante
+feature,raw_variance,iqr,reason
+MV,0.0857657885455438,0.0,IQR = 0: bound_outliers (median +- 5*IQR) collapses the column to a constant
+CB,0.022134926409778183,0.0,IQR = 0: bound_outliers (median +- 5*IQR) collapses the column to a constant
+F1,0.0012398258100031457,0.0,IQR = 0: bound_outliers (median +- 5*IQR) collapses the column to a constant

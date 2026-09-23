@@ -1,14 +1,14 @@
 {
-  "gerado_por": "isaspace.engine.run_instancespace",
-  "gerado_em": "2026-09-22T20:40:32",
+  "generated_by": "isaspace.engine.run_instancespace",
+  "generated_at": "2026-09-23T01:15:18",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
-  "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/iris/metadata.csv",
-  "n_instancias_entrada": 150,
-  "n_instancias": 150,
-  "n_features_entrada": 14,
-  "n_features_selecionadas": 6,
-  "algoritmos": [
+  "input_metadata": "/Users/natanpepeliascov/isa-instance/resultados/isa/iris/metadata.csv",
+  "n_instances_input": 150,
+  "n_instances": 150,
+  "n_features_input": 14,
+  "n_features_selected": 6,
+  "algorithms": [
     "knn",
     "tree",
     "nb",
@@ -16,43 +16,43 @@
     "svm_rbf",
     "rf"
   ],
-  "tem_source": false,
-  "tipos_anotacao": {
-    "arquivo": "annotations.json",
-    "declarados": {
+  "has_source": false,
+  "annotation_types": {
+    "file": "annotations.json",
+    "declared": {
       "row_original": "identifier",
-      "class": "categorica",
-      "ih": "numerica",
-      "n_wrong": "numerica_inteira"
+      "class": "categorical",
+      "ih": "numeric",
+      "n_wrong": "integer"
     }
   },
-  "arquivos_auxiliares": [
+  "auxiliary_files": [
     "annotations.json",
     "degenerate_report.csv",
     "feature_info.csv"
   ],
-  "tempos_s": {
-    "PREPROCESSING": 0.0,
-    "PRELIM": 0.194,
-    "SIFTED": 1.144,
-    "PILOT": 0.42,
-    "deteccao_duplicatas": 0.005,
-    "PYTHIA": 0.557,
+  "timings_s": {
+    "PREPROCESSING": 0.001,
+    "PRELIM": 0.193,
+    "SIFTED": 1.11,
+    "PILOT": 0.415,
+    "near_duplicate_check": 0.004,
+    "PYTHIA": 0.543,
     "CLOISTER": 0.004,
-    "TRACE": 0.245,
-    "build_total": 2.58,
-    "escrita": 0.015
+    "TRACE": 0.242,
+    "build_total": 2.524,
+    "writing": 0.013
   },
-  "trace_robustez": {
-    "limiar": 1e-06,
-    "pares_quase_duplicados": 5,
-    "pares_identicos": 5,
-    "pares_distintos_proximos": 0,
-    "menor_distancia_distintos_antes": 0.00034165547622303557,
-    "regra": "jitter so em posicoes distintas a menos do limiar; pontos identicos nao sao separados (o TRACE os funde com np.unique)",
-    "jitter_aplicado": false
+  "trace_robustness": {
+    "threshold": 1e-06,
+    "near_duplicate_pairs": 5,
+    "identical_pairs": 5,
+    "distinct_close_pairs": 0,
+    "min_distance_distinct_before": 0.00034165547622303557,
+    "rule": "jitter only on distinct positions closer than the threshold; identical points are not separated (TRACE merges them with np.unique)",
+    "jitter_applied": false
   },
-  "arquivos_footprint": {
+  "footprint_files": {
     "knn": {
       "good": "footprint_knn_good.csv",
       "best": null
@@ -78,34 +78,34 @@
       "best": "footprint_rf_best.csv"
     }
   },
-  "footprints_especiais": {
+  "special_footprints": {
     "space": {
-      "arquivo": "footprint_space.csv",
+      "file": "footprint_space.csv",
       "area": 0.7381490299428737,
-      "densidade": 144.95717756112322,
-      "pureza": 1.0,
-      "elementos": 107,
-      "elementos_bons": 107
+      "density": 144.95717756112322,
+      "purity": 1.0,
+      "elements": 107,
+      "good_elements": 107
     },
     "hard": {
-      "arquivo": null,
+      "file": null,
       "area": 0.0,
-      "densidade": 0.0,
-      "pureza": 0.0,
-      "elementos": 0,
-      "elementos_bons": 0,
-      "area_normalizada": 0.0,
-      "densidade_normalizada": 0.0
+      "density": 0.0,
+      "purity": 0.0,
+      "elements": 0,
+      "good_elements": 0,
+      "normalized_area": 0.0,
+      "normalized_density": 0.0
     }
   },
   "pythia": {
-    "pares_instancia_algoritmo": 900,
-    "y_hat_discorda_de_pr0_hat": 3,
-    "selection0_nenhum": 3,
-    "selection1_difere_de_selection0": 3
+    "instance_algorithm_pairs": 900,
+    "y_hat_disagrees_with_pr0_hat": 3,
+    "selection0_none": 3,
+    "selection1_differs_from_selection0": 3
   },
-  "regra_bom": "bom = algo_* >= 0.5",
-  "arquivos": [
+  "good_rule": "good = algo_* >= 0.5",
+  "files": [
     "algorithm_bin.csv",
     "algorithm_process.csv",
     "algorithm_raw.csv",
@@ -145,29 +145,29 @@
     "sifted_silhouette.csv",
     "svm_table.csv"
   ],
-  "avisos": [],
-  "avisos_instancespace": [
+  "warnings": [],
+  "instancespace_warnings": [
     "PythiaOptions.cv_folds=5 exceeds class count 4 for algorithm 'knn'; continuing to match MATLAB, with some test folds missing that class."
   ],
-  "warnings_python": [
+  "python_warnings": [
     {
-      "categoria": "DeprecationWarning",
-      "mensagem": "Conversion of an array with ndim > 0 to a scalar is deprecated, and will error in future. Ensure you extract a single element from your array before performing this operation. (Deprecated NumPy 1.25.)",
+      "category": "DeprecationWarning",
+      "message": "Conversion of an array with ndim > 0 to a scalar is deprecated, and will error in future. Ensure you extract a single element from your array before performing this operation. (Deprecated NumPy 1.25.)",
       "n": 1132
     },
     {
-      "categoria": "FutureWarning",
-      "mensagem": "The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`",
+      "category": "FutureWarning",
+      "message": "The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`",
       "n": 666
     },
     {
-      "categoria": "UserWarning",
-      "mensagem": "The least populated class in y has only 4 members, which is less than n_splits=5.",
+      "category": "UserWarning",
+      "message": "The least populated class in y has only 4 members, which is less than n_splits=5.",
       "n": 22
     },
     {
-      "categoria": "UserWarning",
-      "mensagem": "The balance properties of Sobol' points require n to be a power of 2.",
+      "category": "UserWarning",
+      "message": "The balance properties of Sobol' points require n to be a power of 2.",
       "n": 6
     }
   ]

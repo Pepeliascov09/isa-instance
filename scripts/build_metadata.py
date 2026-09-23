@@ -1,20 +1,20 @@
-"""Regera o metadata do IC7 sem rodar o pyispace.
+"""Regenerate the IC7 metadata without running pyispace.
 
-Para cada dataset, le resultados/table_<nome>.csv, roda
-isaspace.isa.to_isa_metadata e grava em resultados/isa/<nome>/ o metadata.csv
-e os arquivos auxiliares que o engine copia (annotations.json,
-degenerate_report.csv, feature_info.csv). As saidas do pyispace na mesma pasta
-nao sao tocadas. Precisa do .venv (pyhard/pyispace, para o filtro de
-degeneradas).
+For each dataset, read resultados/table_<name>.csv, run
+isaspace.isa.to_isa_metadata and write to resultados/isa/<name>/ the
+metadata.csv and the auxiliary files the engine copies (annotations.json,
+degenerate_report.csv, feature_info.csv). The pyispace outputs in the same
+folder are not touched. Needs the .venv (pyhard/pyispace, for the degenerate
+filter).
 
-Uso: python scripts/build_metadata.py [nome ...]      (padrao: os quatro)
+Usage: python scripts/build_metadata.py [name ...]      (default: the four)
 """
 
 import sys
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import pandas as pd  # noqa: E402
 
@@ -23,14 +23,14 @@ from isaspace.isa import to_isa_metadata  # noqa: E402
 DATASETS = ["iris", "diabetes", "blood-transfusion-service-center", "hill-valley"]
 
 
-def main(nomes):
-    for nome in nomes:
-        outdir = RAIZ / "resultados" / "isa" / nome
-        table = pd.read_csv(RAIZ / "resultados" / f"table_{nome}.csv", index_col=0)
+def main(names):
+    for name in names:
+        outdir = ROOT / "resultados" / "isa" / name
+        table = pd.read_csv(ROOT / "resultados" / f"table_{name}.csv", index_col=0)
         metadata, info = to_isa_metadata(table, outdir=outdir)
-        caidas = ", ".join(info["degenerate_report"]["feature"]) or "nenhuma"
-        print(f"{nome:34s} {metadata.shape[0]} instancias, {len(info['features_kept'])} "
-              f"features; degeneradas: {caidas}; tipos: {info['annotation_types']}")
+        dropped = ", ".join(info["degenerate_report"]["feature"]) or "none"
+        print(f"{name:34s} {metadata.shape[0]} instances, {len(info['features_kept'])} "
+              f"features; degenerate: {dropped}; types: {info['annotation_types']}")
 
 
 if __name__ == "__main__":
