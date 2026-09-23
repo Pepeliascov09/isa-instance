@@ -1,6 +1,6 @@
 {
   "generated_by": "isaspace.engine.run_instancespace",
-  "generated_at": "2026-09-23T01:15:33",
+  "generated_at": "2026-09-23T14:50:27",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
   "input_metadata": "/Users/natanpepeliascov/isa-instance/resultados/isa/diabetes/metadata.csv",
@@ -32,16 +32,16 @@
     "feature_info.csv"
   ],
   "timings_s": {
-    "PREPROCESSING": 0.0,
-    "PRELIM": 0.264,
-    "SIFTED": 1.65,
-    "PILOT": 1.557,
+    "PREPROCESSING": 0.001,
+    "PRELIM": 0.521,
+    "SIFTED": 3.026,
+    "PILOT": 3.005,
     "near_duplicate_check": 0.001,
-    "PYTHIA": 8.775,
-    "CLOISTER": 0.003,
-    "TRACE": 3.098,
-    "build_total": 15.357,
-    "writing": 0.026
+    "PYTHIA": 16.785,
+    "CLOISTER": 0.006,
+    "TRACE": 6.075,
+    "build_total": 29.44,
+    "writing": 0.087
   },
   "trace_robustness": {
     "threshold": 1e-06,
@@ -105,6 +105,59 @@
     "selection1_differs_from_selection0": 125
   },
   "good_rule": "good = algo_* >= 0.5",
+  "orientation": {
+    "enabled": true,
+    "applied": true,
+    "convention": "pyispace adjust_rotation: the centroid of the instances where most algorithms are bad goes to 135 degrees (top left); proper rotation about the origin, no reflection",
+    "bad_instance_rule": "n_bad_algos >= n_algos / 2 (mode of the good/bad row is bad; a tie counts as bad)",
+    "target_angle_deg": 135.0,
+    "n_instances_bad": 192,
+    "gradient_r2": 0.6581845253395374,
+    "weak_gradient_r2_threshold": 0.3,
+    "weak_gradient": false,
+    "warning": null,
+    "angle_deg": -6.15970795018777,
+    "matrix": [
+      [
+        0.994226666418392,
+        0.10730021333889109
+      ],
+      [
+        -0.10730021333889109,
+        0.994226666418392
+      ]
+    ],
+    "determinant": 0.9999999999999999,
+    "centroid_bad_before": [
+      -1.2914597956054321,
+      1.0398564727385442
+    ],
+    "centroid_bad_after": [
+      -1.172426946031494,
+      1.1724269460314938
+    ],
+    "centroid_bad_distance_over_rms": 1.0682817307315373,
+    "gradient_direction_after_deg": 125.83042241452713,
+    "rotated_files": [
+      "coordinates.csv",
+      "bounds.csv",
+      "bounds_prunned.csv",
+      "footprint_knn_good.csv",
+      "footprint_logreg_good.csv",
+      "footprint_nb_good.csv",
+      "footprint_rf_good.csv",
+      "footprint_svm_rbf_good.csv",
+      "footprint_tree_good.csv",
+      "footprint_knn_best.csv",
+      "footprint_logreg_best.csv",
+      "footprint_nb_best.csv",
+      "footprint_rf_best.csv",
+      "footprint_tree_best.csv",
+      "footprint_space.csv",
+      "footprint_hard.csv",
+      "projection_matrix.csv"
+    ]
+  },
   "files": [
     "algorithm_bin.csv",
     "algorithm_process.csv",

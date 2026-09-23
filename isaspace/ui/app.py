@@ -149,11 +149,12 @@ SVM_COLUMNS = [("CV_model_accuracy", "CV accuracy %"), ("CV_model_precision", "C
                ("CV_model_recall", "CV recall %"), ("Probability_of_good", "P(good)"),
                ("Avg_Perf_all_instances", "mean perf."),
                ("Avg_Perf_selected_instances", "mean perf. pred. good")]
-EXPORT_DERIVED = ["z_1", "z_2", "NumGoodAlgos", "IsBetaEasy", "best_algo", "best_algo_or_tie",
+EXPORT_DERIVED = ["z_1", "z_2", "NumGoodAlgos", "n_bad_algos", "IsBetaEasy", "best_algo", "best_algo_or_tie",
                   "n_tied_best", "best_algo_svm"]
 # derived columns of IsResult.instances offered as colors: (label, type)
 DERIVED = {
     "NumGoodAlgos": ("number of good algorithms", NUMERIC),
+    "n_bad_algos": ("number of bad algorithms", NUMERIC),
     "IsBetaEasy": ("beta-easy", CATEGORICAL),
     "best_algo_or_tie": ("best observed algorithm", CATEGORICAL),
     "n_tied_best": ("algorithms tied for the best", NUMERIC),
@@ -161,6 +162,9 @@ DERIVED = {
 }
 # categorical colors whose values are algorithm names: fixed algorithm colors
 ALGO_VALUED = ("best_algo_or_tie", "best_algo_svm")
+# numeric colormaps where dark = hard: viridis is dark at low values, so the
+# counts of bad algorithms use it reversed
+COLORMAPS = {"n_bad_algos": "viridis_r"}
 
 
 class TabTitle(JSComponent):
@@ -233,7 +237,7 @@ def select_groups(cat) -> dict:
     return groups
 
 
-def color_style(values: pd.Series, kind: str, fixed=None) -> dict:
+def color_style(values: pd.Series, kind: str, fixed=None, cmap="viridis") -> dict:
     if kind == CATEGORICAL:
         if fixed is not None:
             present = set(values)
@@ -247,10 +251,10 @@ def color_style(values: pd.Series, kind: str, fixed=None) -> dict:
         lo, hi = int(v.min()), int(v.max())
         if 0 < hi - lo < MAX_DISCRETE_LEVELS:
             # integer values (counts): one color per value, ticks only on integers
-            return dict(cmap="viridis", colorbar=True, show_legend=False, clim=(lo - 0.5, hi + 0.5),
+            return dict(cmap=cmap, colorbar=True, show_legend=False, clim=(lo - 0.5, hi + 0.5),
                         color_levels=hi - lo + 1,
                         colorbar_opts={"ticker": FixedTicker(ticks=list(range(lo, hi + 1)))})
-    return dict(cmap="viridis", colorbar=True, show_legend=False)
+    return dict(cmap=cmap, colorbar=True, show_legend=False)
 
 
 def footprint_polygons(fp, color, label, fill_alpha=0.25, dashed=False):
@@ -346,6 +350,8 @@ class IsaApp:
         self.w_ov_hard = pn.widgets.Checkbox(name="Hard footprint (instances that are not beta-easy)")
         self.ov_note = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
         self.space_status = pn.pane.Markdown("")
+        self.space_orientation = pn.pane.Markdown("", css_classes=["space-orientation"],
+                                                  margin=(0, 10))
         self.space_plot = pn.pane.HoloViews(sizing_mode="stretch_width", min_height=640)
 
         # --- tab 1
@@ -459,7 +465,8 @@ class IsaApp:
         )
         self._swap = len(self.sidebar.objects) - 1   # block that changes with the tab
         self.tabs = pn.Tabs(
-            (TABS[0], pn.Column(self.space_status, self.space_plot, sizing_mode="stretch_width")),
+            (TABS[0], pn.Column(self.space_status, self.space_orientation, self.space_plot,
+                                sizing_mode="stretch_width")),
             (TABS[1], pn.Column(self.fp_status, self.fp_plot,
                                 pn.pane.Markdown("### footprint_performance.csv"), self.fp_table,
                                 sizing_mode="stretch_width")),
@@ -671,7 +678,7 @@ class IsaApp:
         cols = ["z_1", "z_2"]
         cols += [c for c, t in r.annotations.items() if is_numeric_type(t)]
         cols += [f"feature_{f}" for f in r.features_all]
-        cols += [f"algo_{a}" for a in r.algos] + ["NumGoodAlgos", "n_tied_best"]
+        cols += [f"algo_{a}" for a in r.algos] + ["NumGoodAlgos", "n_bad_algos", "n_tied_best"]
         return [c for c in dict.fromkeys(cols) if c in self._data.columns
                 and pd.api.types.is_numeric_dtype(self._data[c])]
 
@@ -901,7 +908,8 @@ class IsaApp:
             responsive=True, min_height=620, show_grid=True, xlabel="z_1", ylabel="z_2",
             title=f"Instance space (PILOT) — color: {label}",
         )
-        style.update(color_style(data["color_value"], kind, self._fixed_colors(col)))
+        style.update(color_style(data["color_value"], kind, self._fixed_colors(col),
+                                 COLORMAPS.get(col, "viridis")))
         if positions:
             style["selected"] = positions
         points = hv.Points(data, ["z_1", "z_2"], [hv.Dimension("color_value", label=label), "Row"]
@@ -915,6 +923,22 @@ class IsaApp:
             legend_position="right", legend_opts={"click_policy": "hide"},
             responsive=True, min_height=620)
         self.space_status.object = self._space_status()
+        self.space_orientation.object = self._orientation_note()
+
+    def _orientation_note(self):
+        """Where the hard region is by convention, and the weak-gradient warning."""
+        o = self.state.result.orientation
+        if not o:
+            return "_Orientation: no information (folder written before the standard orientation)._"
+        if not o.get("applied"):
+            return f"_Orientation: PILOT's own ({o.get('reason_not_applied', 'not applied')})._"
+        note = ("_Orientation: standardized as in pyispace; the instances where most algorithms "
+                "are bad are at the **top left** (135°)._")
+        if o.get("weak_gradient"):
+            note += (f"  \n⚠ _Weak difficulty gradient (R² = {o['gradient_r2']:.2f} of the number "
+                     "of bad algorithms on z): the hard region is spread, and the top-left "
+                     "convention says little for this dataset._")
+        return note
 
     # ------------------------------------------------------ tab 1: footprints
     def _refresh_footprints(self):
@@ -1408,7 +1432,8 @@ class IsaApp:
         style = dict(color="color_value", alpha="opacity", size=6, line_color=None, tools=[hover],
                      responsive=True, min_height=460, show_grid=True, legend_position="right",
                      title=f"{x} x {y} — color: {label}")
-        style.update(color_style(plot["color_value"], kind, self._fixed_colors(col)))
+        style.update(color_style(plot["color_value"], kind, self._fixed_colors(col),
+                                 COLORMAPS.get(col, "viridis")))
         self.ex_plot.object = hv.Points(
             plot, [hv.Dimension("x_value", label=x), hv.Dimension("y_value", label=y)],
             [hv.Dimension("color_value", label=label), "Row", "opacity"]).opts(**style)

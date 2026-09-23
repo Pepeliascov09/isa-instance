@@ -42,6 +42,7 @@ Columns of IsResult.instances (index Row, text labels):
   algo_<a>_bin                 algorithm_bin.csv (bool: good in the observed performance)
   algo_<a>_svm                 algorithm_svm.csv (bool: good according to PYTHIA)
   NumGoodAlgos, IsBetaEasy     good_algos.csv, beta_easy.csv (bool)
+  n_bad_algos                  number of algorithms minus NumGoodAlgos
   best_algo, best_algo_svm     portfolio.csv, portfolio_svm.csv -> name or None
   n_tied_best                  algorithms sharing the best observed value (0 = no values)
   best_algo_or_tie             best_algo when n_tied_best == 1, TIE when > 1, None when 0
@@ -244,6 +245,11 @@ class IsResult:
     @property
     def higher_is_better(self) -> bool:
         return bool(self.run_options.get("perf", {}).get("max_perf", True))
+
+    @property
+    def orientation(self) -> dict:
+        """run_info.json["orientation"] (empty for folders written before it existed)."""
+        return self.run_info.get("orientation", {})
 
     @property
     def features_outside_pilot(self) -> list:
@@ -559,6 +565,7 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
         beta[["IsBetaEasy"]],
     ]
     instances = pd.concat(parts, axis=1)
+    instances["n_bad_algos"] = len(algos) - instances["NumGoodAlgos"]
     instances["best_algo"] = _name_from_index(port["Best_Algorithm"], algos, 1, "portfolio.csv")
     instances["best_algo_svm"] = _name_from_index(port_svm["Best_Algorithm"], algos, 0,
                                                   "portfolio_svm.csv")

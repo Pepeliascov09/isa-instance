@@ -44,6 +44,20 @@ the Model, but coordinates.csv is rewritten with the PILOT z; the TRACE z goes
 to coordinates_trace.csv. Everything is recorded in
 ``run_info.json["trace_robustness"]``.
 
+Orientation: PILOT's projection has an arbitrary rotation, so the same kind
+of region can land anywhere from one dataset to the next. After the WHOLE
+pipeline (so nothing instancespace computes depends on it), the engine rotates
+every geometric output with the convention of pyispace's adjust_rotation
+(pyispace/pilot.py:97-103, called by train.py:143-150): the centroid of the
+instances for which most algorithms are bad goes to 135 degrees, the top left
+of the z_1 x z_2 plane. Only a proper rotation (det = +1, no reflection),
+about the origin (the PILOT z is centered). Rotated: coordinates.csv,
+coordinates_trace.csv, every footprint_*.csv, bounds.csv, bounds_prunned.csv
+and projection_matrix.csv. Recorded in ``run_info.json["orientation"]``, with
+the R^2 of the number of bad algorithms regressed on (z_1, z_2) as the
+strength of the difficulty gradient. ``orient=False`` (CLI ``--no-orient``)
+keeps PILOT's orientation.
+
 Command line (used by the UI, isaspace.ui.runner, to run the engine in a
 subprocess): see ``main``.
 
@@ -118,6 +132,16 @@ DEFAULT_OPTIONS = {
 NEAR_DUPLICATE_THRESHOLD = 1e-6   # projection point pairs closer than this
 JITTER_SCALE = 1e-6               # std of the normal noise added to those points
 JITTER_SEED = 0
+
+# orientation (pyispace adjust_rotation convention)
+TARGET_ANGLE_DEG = 135.0     # centroid of the majority-bad instances: top left
+WEAK_GRADIENT_R2 = 0.3       # below this the difficulty gradient is weak (same
+                             # threshold as the UI's low PILOT r2 warning)
+# files whose z_1, z_2 columns are rotated (metadata.csv is never touched: an
+# annotation may be called z_1)
+ROTATED_FILES = ("coordinates.csv", "coordinates_trace.csv", "bounds.csv", "bounds_prunned.csv")
+ROTATED_PATTERNS = ("footprint_*_good.csv", "footprint_*_best.csv", "footprint_space.csv",
+                    "footprint_hard.csv")
 
 STATUS_KEPT = "kept"
 STATUS_CORRELATION = "dropped_correlation"
@@ -556,6 +580,121 @@ def _write_special_footprint(outdir, name, fp, space):
 
 
 # --------------------------------------------------------------------------- #
+# orientation
+# --------------------------------------------------------------------------- #
+def rotation_matrix(theta):
+    """Proper 2D rotation (det = +1) by `theta` radians, counterclockwise."""
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array([[c, -s], [s, c]])
+
+
+def rotate(z, rot):
+    """Rows of z (n, 2) rotated by `rot`, element by element: the same point
+    gives bit-identical results in every file (a matrix product could round
+    differently depending on the array)."""
+    z = np.asarray(z, dtype=float)
+    return np.column_stack([rot[0, 0] * z[:, 0] + rot[0, 1] * z[:, 1],
+                            rot[1, 0] * z[:, 0] + rot[1, 1] * z[:, 1]])
+
+
+def orientation(z, y_bin):
+    """Rotation of pyispace's adjust_rotation on generic metadata.
+
+    pyispace (train.py:143-150, pilot.py:97-103): an instance is "bad" when the
+    mode of its row of Ybin is 0, i.e. at least half of the algorithms are bad
+    (scipy.stats.mode breaks a tie towards 0); the centroid of those instances,
+    seen from the origin, is rotated to 135 degrees. Here the same rule is
+    written with the number of bad algorithms, n_bad = n_algos - good_algos:
+    bad instance <=> n_bad >= n_algos / 2. Differences: no rotation when every
+    instance is bad (the centroid of all instances is the origin, the direction
+    is undefined; pyispace would rotate by noise), and the strength of the
+    gradient is measured (R^2 of n_bad on z_1, z_2, a linear regression, which
+    does not depend on the rotation).
+
+    Returns (2x2 rotation or None, record for run_info["orientation"]).
+    """
+    z = np.asarray(z, dtype=float)
+    good = np.asarray(y_bin, dtype=bool)
+    n_algos = good.shape[1]
+    n_bad = n_algos - good.sum(axis=1)
+    bad = n_bad >= n_algos / 2
+    design = np.column_stack([np.ones(len(z)), z])
+    coef, *_ = np.linalg.lstsq(design, n_bad.astype(float), rcond=None)
+    resid = n_bad - design @ coef
+    total = ((n_bad - n_bad.mean()) ** 2).sum()
+    r2 = float(1 - (resid ** 2).sum() / total) if total > 0 else 0.0
+    record = {
+        "enabled": True,
+        "applied": False,
+        "convention": "pyispace adjust_rotation: the centroid of the instances where most "
+                      "algorithms are bad goes to 135 degrees (top left); proper rotation "
+                      "about the origin, no reflection",
+        "bad_instance_rule": "n_bad_algos >= n_algos / 2 (mode of the good/bad row is bad; "
+                             "a tie counts as bad)",
+        "target_angle_deg": TARGET_ANGLE_DEG,
+        "n_instances_bad": int(bad.sum()),
+        "gradient_r2": r2,
+        "weak_gradient_r2_threshold": WEAK_GRADIENT_R2,
+        "weak_gradient": r2 < WEAK_GRADIENT_R2,
+        "warning": None,
+    }
+    if not bad.any() or bad.all():
+        record["reason_not_applied"] = ("no instance has most algorithms bad" if not bad.any()
+                                        else "every instance has most algorithms bad")
+        return None, record
+    centroid = z[bad].mean(axis=0)
+    theta = np.radians(TARGET_ANGLE_DEG) - np.arctan2(centroid[1], centroid[0])
+    theta = float(np.arctan2(np.sin(theta), np.cos(theta)))       # in (-pi, pi]
+    rot = rotation_matrix(theta)
+    grad = rot @ coef[1:]
+    rms = float(np.sqrt((z ** 2).sum(axis=1).mean()))
+    record.update({
+        "applied": True,
+        "angle_deg": float(np.degrees(theta)),
+        "matrix": rot.tolist(),
+        "determinant": float(np.linalg.det(rot)),
+        "centroid_bad_before": centroid.tolist(),
+        "centroid_bad_after": (rot @ centroid).tolist(),
+        "centroid_bad_distance_over_rms": float(np.linalg.norm(centroid) / rms) if rms else None,
+        "gradient_direction_after_deg": float(np.degrees(np.arctan2(grad[1], grad[0]))),
+    })
+    if record["weak_gradient"]:
+        record["warning"] = (f"weak difficulty gradient: the number of bad algorithms depends "
+                             f"little on the position in the plane (linear R^2 = {r2:.2f} < "
+                             f"{WEAK_GRADIENT_R2}); the hard region is spread and the top-left "
+                             "convention says little for this dataset")
+    return rot, record
+
+
+def _rotate_outputs(outdir, rot, projection=None):
+    """Rewrite the z_1, z_2 columns of the geometric outputs rotated by `rot`,
+    and projection_matrix.csv as rot @ A (A at full precision from the Model
+    when given, rounded to 4 decimals like instancespace's save_to_csv)."""
+    files = [outdir / f for f in ROTATED_FILES if (outdir / f).is_file()]
+    for pattern in ROTATED_PATTERNS:
+        files += sorted(outdir.glob(pattern))
+    for path in files:
+        df = pd.read_csv(path, dtype=str, keep_default_na=False)
+        z = df[["z_1", "z_2"]].astype(float).to_numpy()
+        zr = rotate(z, rot)
+        df["z_1"], df["z_2"] = zr[:, 0], zr[:, 1]
+        df.to_csv(path, index=False)
+    proj_path = outdir / "projection_matrix.csv"
+    if proj_path.is_file():
+        proj = pd.read_csv(proj_path, dtype={"Row": str}).set_index("Row")
+        a = proj.to_numpy(dtype=float)
+        if projection is not None:
+            full = np.asarray(projection, dtype=float)
+            # use the full-precision A only if it is the one written (same shape
+            # and order): the file is it rounded to 4 decimals
+            if full.shape == a.shape and np.allclose(np.round(full, 4), a, atol=1e-12):
+                a = full
+        proj.loc[:, :] = np.round(rot @ a, 4)
+        proj.reset_index().to_csv(proj_path, index=False)
+    return [p.name for p in files] + (["projection_matrix.csv"] if proj_path.is_file() else [])
+
+
+# --------------------------------------------------------------------------- #
 # output folder
 # --------------------------------------------------------------------------- #
 def _engine_files(outdir):
@@ -621,7 +760,7 @@ def _footprint_files(outdir, algo_labels):
 # API
 # --------------------------------------------------------------------------- #
 def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
-                      fix_near_duplicates=True):
+                      fix_near_duplicates=True, orient=True):
     """Run instancespace on `metadata_path` and write the folder `outdir`.
 
     Parameters
@@ -639,6 +778,8 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
         "TRACE", in that order.
     fix_near_duplicates : if False, only count the near-duplicate pairs of the
         projection and do not apply the jitter (for comparison).
+    orient : standard orientation (see "Orientation" in the module docstring),
+        applied after the whole pipeline; False keeps PILOT's orientation.
 
     Returns the dict written to run_info.json. A failing stage becomes a
     RuntimeError naming the stage; the output folder is only touched after
@@ -718,6 +859,19 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
         "space": space,
         "hard": _write_special_footprint(outdir, "hard", model.trace.hard, space),
     }
+    # orientation: after everything, only on the geometric outputs
+    coords = pd.read_csv(outdir / "coordinates.csv", dtype={"Row": str}).set_index("Row")
+    good_bin = pd.read_csv(outdir / "algorithm_bin.csv", dtype=str).set_index("Row")
+    good_bin = good_bin.reindex(coords.index).apply(lambda s: s.str.strip().str.lower() == "true")
+    rot, orient_info = orientation(coords[["z_1", "z_2"]].to_numpy(), good_bin.to_numpy())
+    orient_info["enabled"] = bool(orient)
+    if orient and rot is not None:
+        pilot_a = getattr(model.pilot, "a", None)
+        orient_info["rotated_files"] = _rotate_outputs(outdir, rot, pilot_a)
+    else:
+        orient_info.update({"applied": False, "rotated_files": []})
+        if not orient:
+            orient_info["reason_not_applied"] = "disabled (orient=False)"
     timings["writing"] = round(time.perf_counter() - t0, 3)
 
     counts = Counter((w.category.__name__, str(w.message)) for w in caught)
@@ -744,6 +898,7 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
         "special_footprints": special,
         "pythia": pythia_info,
         "good_rule": _good_rule(opts.perf),
+        "orientation": orient_info,
         "files": sorted({p.name for p in _engine_files(outdir)} | {"run_info.json"}),
         "warnings": warns,
         "instancespace_warnings": list(dict.fromkeys(is_warnings)),
@@ -763,12 +918,14 @@ def main(argv=None):
     stage and, at the end, "@@isa ok <outdir>" or "@@isa error <message>"
     (exit code 1); everything else is log.
 
-    python -m isaspace.engine --metadata M.csv --outdir FOLDER [--options JSON]
+    python -m isaspace.engine --metadata M.csv --outdir FOLDER [--options JSON] [--no-orient]
     """
     parser = argparse.ArgumentParser(description="Run instancespace on a metadata.csv")
     parser.add_argument("--metadata", required=True)
     parser.add_argument("--outdir", required=True)
     parser.add_argument("--options", default="{}", help="JSON dict overriding DEFAULT_OPTIONS")
+    parser.add_argument("--no-orient", action="store_true",
+                        help="keep PILOT's orientation (no standard rotation)")
     args = parser.parse_args(argv)
     logger.remove()
     logger.add(sys.stderr, level="INFO")
@@ -778,7 +935,8 @@ def main(argv=None):
 
     try:
         run_instancespace(args.metadata, args.outdir, options=json.loads(args.options),
-                          progress=lambda stage: signal(f"stage {stage}"))
+                          progress=lambda stage: signal(f"stage {stage}"),
+                          orient=not args.no_orient)
     except Exception as exc:  # noqa: BLE001 -- the message goes to the UI
         traceback.print_exc()
         signal("error " + f"{type(exc).__name__}: {exc}".replace("\n", " "))

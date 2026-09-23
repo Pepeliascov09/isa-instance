@@ -86,18 +86,19 @@ def write_inputs(path: Path, metadata: bytes, annotations: bytes | None = None,
     return folder / "metadata.csv"
 
 
-def command(metadata_path, outdir, options) -> list:
-    return [sys.executable, "-m", "isaspace.engine", "--metadata", str(metadata_path),
-            "--outdir", str(outdir), "--options", json.dumps(options)]
+def command(metadata_path, outdir, options, orient=True) -> list:
+    cmd = [sys.executable, "-m", "isaspace.engine", "--metadata", str(metadata_path),
+           "--outdir", str(outdir), "--options", json.dumps(options)]
+    return cmd if orient else cmd + ["--no-orient"]
 
 
-def launch(metadata_path, outdir, options, on_stage=None, on_finish=None) -> Run:
+def launch(metadata_path, outdir, options, on_stage=None, on_finish=None, orient=True) -> Run:
     """Start the engine in a subprocess; the callbacks run in the reader
     thread (whoever updates the UI must hand them to the session's document)."""
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
-        command(metadata_path, outdir, options), cwd=ROOT, stdout=subprocess.PIPE,
+        command(metadata_path, outdir, options, orient), cwd=ROOT, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, bufsize=1, encoding="utf-8", errors="replace",
     )
     run = Run(path=outdir, process=proc, started=time.perf_counter())

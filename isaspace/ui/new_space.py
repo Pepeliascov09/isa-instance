@@ -87,6 +87,8 @@ class NewSpacePanel:
                                        start=2, **W)
         self.w_usesim = pn.widgets.Checkbox(
             name="trace.usesim: footprints from the PYTHIA predictions", value=False)
+        self.w_orient = pn.widgets.Checkbox(
+            name="Standard orientation: hard region at the top left", value=True)
         self.advanced = pn.Card(
             self.w_k, pn.pane.Markdown(
                 f"_instancespace default: k = {K_DEFAULT}. With fewer surviving features "
@@ -94,6 +96,10 @@ class NewSpacePanel:
             self.w_usesim, pn.pane.Markdown(
                 "_Off (this interface's default): footprints of the observed performance._",
                 width=width - 20),
+            self.w_orient, pn.pane.Markdown(
+                "_On by default: after the pipeline, the space is rotated (no reflection) so "
+                "that the instances where most algorithms are bad sit at the top left, as in "
+                "pyispace. Off: PILOT's arbitrary orientation._", width=width - 20),
             title="Advanced options", collapsed=True, width=width, margin=(5, 0))
         self.time = pn.Column(**W)
         self.ranking = pn.pane.Markdown("", css_classes=["new-ranking"], **W)
@@ -322,7 +328,8 @@ class NewSpacePanel:
         self.run = runner.launch(
             meta, path, self.options(),
             on_stage=self._in_session(doc, self._on_stage),
-            on_finish=self._in_session(doc, self._on_finish))
+            on_finish=self._in_session(doc, self._on_finish),
+            orient=bool(self.w_orient.value))
         self.progress.value, self.progress.visible = 0, True
         self.status.object = f"Starting in `runs/{path.name}`…"
         if doc is not None and doc.session_context is not None:

@@ -1,6 +1,6 @@
 {
   "generated_by": "isaspace.engine.run_instancespace",
-  "generated_at": "2026-09-23T01:16:19",
+  "generated_at": "2026-09-23T14:51:55",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
   "input_metadata": "/Users/natanpepeliascov/isa-instance/resultados/isa/hill-valley/metadata.csv",
@@ -33,15 +33,15 @@
   ],
   "timings_s": {
     "PREPROCESSING": 0.001,
-    "PRELIM": 0.229,
-    "SIFTED": 1.239,
-    "PILOT": 1.595,
-    "near_duplicate_check": 0.002,
-    "PYTHIA": 26.271,
-    "CLOISTER": 0.003,
-    "TRACE": 3.027,
-    "build_total": 32.376,
-    "writing": 0.034
+    "PRELIM": 0.44,
+    "SIFTED": 2.333,
+    "PILOT": 3.084,
+    "near_duplicate_check": 0.003,
+    "PYTHIA": 50.751,
+    "CLOISTER": 0.007,
+    "TRACE": 5.876,
+    "build_total": 62.514,
+    "writing": 0.104
   },
   "trace_robustness": {
     "threshold": 1e-06,
@@ -143,6 +143,59 @@
     "selection1_differs_from_selection0": 11
   },
   "good_rule": "good = algo_* >= 0.5",
+  "orientation": {
+    "enabled": true,
+    "applied": true,
+    "convention": "pyispace adjust_rotation: the centroid of the instances where most algorithms are bad goes to 135 degrees (top left); proper rotation about the origin, no reflection",
+    "bad_instance_rule": "n_bad_algos >= n_algos / 2 (mode of the good/bad row is bad; a tie counts as bad)",
+    "target_angle_deg": 135.0,
+    "n_instances_bad": 604,
+    "gradient_r2": 0.283231404656869,
+    "weak_gradient_r2_threshold": 0.3,
+    "weak_gradient": true,
+    "warning": "weak difficulty gradient: the number of bad algorithms depends little on the position in the plane (linear R^2 = 0.28 < 0.3); the hard region is spread and the top-left convention says little for this dataset",
+    "angle_deg": -151.57894421396318,
+    "matrix": [
+      [
+        -0.8794737250028822,
+        0.4759474414570949
+      ],
+      [
+        -0.4759474414570949,
+        -0.8794737250028822
+      ]
+    ],
+    "determinant": 1.0000000000000002,
+    "centroid_bad_before": [
+      0.07816319468408701,
+      -0.26254559574660863
+    ],
+    "centroid_bad_after": [
+      -0.1937003805483666,
+      0.19370038054836675
+    ],
+    "centroid_bad_distance_over_rms": 0.3085960484272968,
+    "gradient_direction_after_deg": 128.18112196979038,
+    "rotated_files": [
+      "coordinates.csv",
+      "coordinates_trace.csv",
+      "bounds.csv",
+      "bounds_prunned.csv",
+      "footprint_knn_good.csv",
+      "footprint_logreg_good.csv",
+      "footprint_nb_good.csv",
+      "footprint_rf_good.csv",
+      "footprint_svm_rbf_good.csv",
+      "footprint_tree_good.csv",
+      "footprint_logreg_best.csv",
+      "footprint_nb_best.csv",
+      "footprint_svm_rbf_best.csv",
+      "footprint_tree_best.csv",
+      "footprint_space.csv",
+      "footprint_hard.csv",
+      "projection_matrix.csv"
+    ]
+  },
   "files": [
     "algorithm_bin.csv",
     "algorithm_process.csv",

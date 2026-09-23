@@ -64,6 +64,11 @@ def run(name):
     for fp in (r.footprint_space, r.footprint_hard):
         print(f"  {fp.kind}: {fp.status}, {len(fp.polygons)} parts, area {fp.area:.4f}, "
               f"purity {fp.purity:.3f}")
+    o = info["orientation"]
+    print(f"\n-- orientation: applied {o['applied']}"
+          + (f", rotated {o['angle_deg']:.1f} deg, {o['n_instances_bad']} majority-bad instances, "
+             f"gradient R2 {o['gradient_r2']:.3f}" if o["applied"] else f" ({o.get('reason_not_applied')})")
+          + (f" | WARNING: {o['warning']}" if o.get("warning") else ""))
     ties = int((r.instances["n_tied_best"] > 1).sum())
     print(f"\n-- ties for the best observed value: {ties} of {r.n} instances --")
     for warning in info["warnings"] + info["instancespace_warnings"]:

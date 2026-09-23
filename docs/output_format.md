@@ -8,7 +8,7 @@ written by `scripts/run_is_all.py`.
 
 Runs launched from the interface (the "New instance space" block) go to
 `runs/<name>_<YYYYMMDD-HHMMSS>/`, outside git. The engine runs in a subprocess
-(`python -m isaspace.engine --metadata ... --outdir ... --options '<json>'`,
+(`python -m isaspace.engine --metadata ... --outdir ... --options '<json>' [--no-orient]`,
 launched by `isaspace.ui.runner`), and the folder follows this contract with
 two extra items that the engine does not touch:
 
@@ -102,6 +102,7 @@ JSON object.
 | `annotation_types` | dict | `{"file": "annotations.json" or null, "declared": {annotation: type}}` |
 | `auxiliary_files` | list[str] | which of `annotations.json`, `degenerate_report.csv` and `feature_info.csv` were copied |
 | `good_rule` | str | the rule of `algorithm_bin.csv`, e.g. `"good = algo_* >= 0.5"` |
+| `orientation` | dict | the standard rotation of the geometric outputs; see [Orientation](#orientation) |
 | `timings_s` | dict | seconds per stage (`PREPROCESSING` … `TRACE`), plus `near_duplicate_check`, `build_total` and `writing` |
 | `trace_robustness` | dict | see below |
 | `footprint_files` | dict | `{algo: {"good": file or null, "best": file or null}}`; see TRACE |
@@ -242,12 +243,63 @@ with `r2_pilot` from `pilot_r2.csv` for the kept features. Its columns are
 
 ---
 
+## Orientation
+
+PILOT's projection has an arbitrary rotation, so the same kind of region lands
+anywhere from one dataset to the next. After the **whole** pipeline (nothing
+instancespace computes depends on it), the engine rotates every geometric
+output with the convention of pyispace's `adjust_rotation`
+(`pyispace/pilot.py:97-103`, called by `train.py:143-150` with
+`rotation_adjust=True`):
+
+- an instance is **bad** when at least half of the algorithms are bad for it:
+  `n_bad_algos >= n_algorithms / 2`, with `n_bad_algos = n_algorithms −
+  NumGoodAlgos`. This is pyispace's rule, the mode of the instance's row of
+  `Ybin` being 0 (`scipy.stats.mode` breaks a 3-3 tie towards 0, so a tie counts
+  as bad);
+- the centroid of the bad instances, seen from the origin (the PILOT z is
+  centered), is rotated to **135°: the top left** of the z_1 × z_2 plane;
+- only a proper rotation (determinant +1): no reflection, no scaling.
+
+Rotated files: `coordinates.csv`, `coordinates_trace.csv`, every
+`footprint_*.csv` (algorithms, `space` and `hard`), `bounds.csv`,
+`bounds_prunned.csv`, and `projection_matrix.csv` (as `R · A`, from the
+`Model`'s full-precision A, rounded to 4 decimals). Everything else is not
+geometry and is identical with or without the rotation: footprint areas,
+densities and purities (`footprint_performance.csv`, `special_footprints`),
+which instances lie in each footprint, every PYTHIA output and `pilot_r2.csv`
+(`tests/test_orientation.py` checks this on the four examples).
+`metadata.csv` is never rotated, even if an annotation is called `z_1`.
+
+`run_info.json["orientation"]`:
+
+| key | content |
+|---|---|
+| `enabled` | whether the orientation was requested (`--no-orient` / `orient=False` turn it off; on by default) |
+| `applied` | whether a rotation was applied |
+| `convention`, `bad_instance_rule`, `target_angle_deg` (135) | the rule, in words |
+| `n_instances_bad` | instances with most algorithms bad |
+| `gradient_r2` | R² of the linear regression of `n_bad_algos` on (z_1, z_2): how much the difficulty follows a direction in the plane (it does not depend on the rotation) |
+| `weak_gradient`, `weak_gradient_r2_threshold` (0.3), `warning` | `gradient_r2` below the threshold: the hard region is spread and the convention says little; `warning` is the text (null otherwise) |
+| `angle_deg`, `matrix`, `determinant` | the rotation applied (counterclockwise, degrees in (−180, 180]; `matrix` is R, with `z_new = R · z`) |
+| `centroid_bad_before`, `centroid_bad_after` | centroid of the bad instances; after the rotation it is at 135° |
+| `centroid_bad_distance_over_rms` | its distance to the origin over the RMS radius of the points: small values mean a direction that is poorly defined |
+| `gradient_direction_after_deg` | direction of the regression gradient after the rotation (informative: it need not be 135°) |
+| `rotated_files` | the files rewritten |
+| `reason_not_applied` | when `applied` is false: disabled, no bad instance, or every instance bad (the centroid of all points is the origin, so the direction is undefined; pyispace would rotate by numerical noise) |
+
+In the four examples: iris rotated by 146.7° (7 bad instances, R² 0.46),
+diabetes −6.2° (192, R² 0.66), blood-transfusion-service-center 31.0° (192,
+R² 0.69) and hill-valley −151.6° (604 of 1212, R² 0.28, **weak**: warning).
+
+---
+
 ## Projection (PILOT)
 
 ### `coordinates.csv` (eng)
 
-`Row`, `z_1`, `z_2` (float). The **PILOT z, without correction**. It is what
-the interface draws. The engine rewrites this file after `save_to_csv`, which
+`Row`, `z_1`, `z_2` (float). The **PILOT z, without the TRACE correction**, in
+the standard [orientation](#orientation). It is what the interface draws. The engine rewrites this file after `save_to_csv`, which
 would write the TRACE z.
 
 ### `coordinates_trace.csv` (eng, optional)
@@ -263,8 +315,8 @@ to decide which instances lie inside a footprint
 ### `projection_matrix.csv` (sc)
 
 `Row` ∈ {`Z_{1}`, `Z_{2}`} (the loader renames them to `z_1`, `z_2`), plus one
-column per selected feature. It is the PILOT matrix A, **rounded to 4
-decimals**. `z ≈ A · x` holds, with `x` the row of `feature_process.csv`. Full
+column per selected feature. It is the PILOT matrix A in the standard
+[orientation](#orientation) (`R · A`), **rounded to 4 decimals**. `z ≈ A · x` holds, with `x` the row of `feature_process.csv`. Full
 precision is only in the `Model`.
 
 ### `pilot_r2.csv` (eng)
@@ -300,7 +352,9 @@ All per instance (`Row`), with one column per feature or algorithm.
 - **`algorithm_bin.csv`**: bool, "good" according to `run_info.good_rule` (the
   instancespace `y_bin`).
 - **`good_algos.csv`**: `NumGoodAlgos` (int), the number of good algorithms in
-  the instance.
+  the instance. The loader adds `instances["n_bad_algos"]` = number of
+  algorithms − `NumGoodAlgos` (the difficulty variable of the
+  [orientation](#orientation)).
 - **`beta_easy.csv`**: `IsBetaEasy` (bool), equal to
   `NumGoodAlgos > perf.beta_threshold × n_algorithms`.
 - **`portfolio.csv`**: `Best_Algorithm` (int), **1-based** index of the best

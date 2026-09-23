@@ -43,7 +43,10 @@ box) in the Instance Space tab, and the color variable, apply to all of them.
   The PILOT r² of the color variable is shown next to the selector, with a
   warning when the plane explains little of it. Overlays: the footprints of
   one or all algorithms (good or best), the CLOISTER boundary and the hard
-  footprint.
+  footprint. The space has a **standard orientation**: the instances where
+  most algorithms are bad are at the **top left**, as in pyispace, so the hard
+  region does not have to be looked for in each dataset; a note says so, with
+  a warning when the difficulty gradient is weak (see Known limitations).
 - **Footprint Performance**: the footprints on the map with the selection
   highlighted, and `footprint_performance.csv` with each footprint's status
   (*ok*, *suspect* when the purity is below `trace.purity`, drawn dashed, or
@@ -124,6 +127,8 @@ The engine can also be used without the interface:
     --options '{"perf": {"max_perf": true, "abs_perf": true, "epsilon": 0.5}}'
 ```
 
+`--no-orient` keeps PILOT's own orientation (see below).
+
 ## Running ISA on a new metadata
 
 In the **New instance space** block of the sidebar:
@@ -151,9 +156,9 @@ In the **New instance space** block of the sidebar:
      direction, with the best and the worst named, and the sentence "If this
      ranking looks upside down for your problem, the direction is probably
      wrong." Nothing tries to guess the direction for you.
-3. **Advanced options** (collapsed): the SIFTED k (default 6) and
+3. **Advanced options** (collapsed): the SIFTED k (default 6),
    `trace.usesim` (off: footprints of the observed performance, not of the
-   PYTHIA predictions).
+   PYTHIA predictions) and the standard orientation (on).
 4. **Run ISA.** The engine runs in a subprocess, with progress per stage, and
    the interface stays usable meanwhile. The result goes to
    `runs/<name>_<YYYYMMDD-HHMMSS>/`, with the uploaded files in `input/` and
@@ -188,6 +193,21 @@ auxiliary files). The interface reads only these folders, through
 
 ## Known limitations
 
+- **Orientation convention.** PILOT's plane has an arbitrary rotation. After
+  the whole pipeline, the engine rotates every geometric output so that the
+  centroid of the instances where at least half of the algorithms are bad
+  sits at 135° (top left), the rule of pyispace's `adjust_rotation`
+  (`rotation_adjust=True`), written with the number of bad algorithms so that
+  it works for any metadata. It is a proper rotation (no reflection): it fixes
+  where the hard region is, not the handedness of the plane, so two datasets
+  can still be mirror images of each other around that direction. Nothing
+  instancespace computes changes (footprint areas, densities, purities and
+  membership, PYTHIA, PILOT r²; checked by `tests/test_orientation.py`). The
+  convention is only as meaningful as the difficulty gradient: the R² of the
+  number of bad algorithms regressed on (z_1, z_2) is recorded, and below 0.3
+  the interface warns that the hard region is spread. In the examples: iris
+  0.46, diabetes 0.66, blood-transfusion-service-center 0.69, hill-valley 0.28
+  (warning).
 - **TRACE jitter.** The legacy TRACE alpha shape in instancespace 0.3.0
   returns an empty polygon when the projection has *distinct* points about
   1e-14 apart (identical points are harmless: TRACE merges them). In the
@@ -234,15 +254,20 @@ auxiliary files). The interface reads only these folders, through
 With the `.venv-isa`:
 
 ```bash
-.venv-isa/bin/python -m pytest tests/                 # everything, about 3 min
-.venv-isa/bin/python -m pytest tests/ -m "not e2e"    # the fast ones, seconds
+.venv-isa/bin/python -m pytest tests/                            # everything, about 5 min
+.venv-isa/bin/python -m pytest tests/ -m "not e2e and not slow"  # the fast ones, seconds
 ```
 
-190 tests: 150 fast and 40 end-to-end.
+214 tests: 162 fast, 8 slow (they run the engine again on the four examples)
+and 44 end-to-end.
 
 - `tests/test_loader_is.py` and `tests/test_engine.py` test the loader on
   `resultados/is/` and on a synthetic folder (text labels, holes, name
   collisions, ties), and the engine's validation of the auxiliary files.
+- `tests/test_orientation.py` tests the standard orientation: the rotation
+  itself (135°, determinant +1, the pyispace tie rule), the hard region at the
+  top left in the four examples and, marked `slow`, the invariance: the four
+  examples run again without the rotation and compared.
 - `tests/test_upload.py` tests the upload validation, the fraction of good
   instances (checked against instancespace's own
   `compute_binary_performance` and against the written `algorithm_bin.csv`),

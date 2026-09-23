@@ -14,7 +14,7 @@ v0.3.0) to the pytest cache; without network, that test is skipped.
 Needs the .venv-isa with playwright and the Playwright Chromium
 (python -m playwright install chromium). Usage, from the root:
     .venv-isa/bin/python -m pytest tests/test_app_e2e.py
-    .venv-isa/bin/python -m pytest tests/ -m "not e2e"     (only the fast ones)
+    .venv-isa/bin/python -m pytest tests/ -m "not e2e and not slow"   (only the fast ones)
 """
 
 import json
@@ -600,6 +600,24 @@ def test_features_tab_of_iris_lists_every_feature_and_the_degenerate_ones(screen
     assert t.page.get_by_text("19 features received").count() == 1
     assert any(p["title"].startswith("Pearson rho") for p in t.plots())      # heatmap
     assert any("k used = 6" in p["title"] for p in t.plots())                # silhouette
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_orientation_note_and_bad_algorithms_color(screen, dataset):
+    t, url = screen
+    t.open(url, dataset)
+    note = t.wait_for(lambda: t.text("space-orientation"), "orientation note did not appear")
+    assert "top left" in note
+    assert ("Weak difficulty gradient" in note) is (dataset == "hill-valley")
+    t.choose_option("Point color", "number of bad algorithms")
+    t.wait_for(lambda: (t.plot(SPACE) or {}).get("title", "").endswith("color: number of bad algorithms"),
+               "color did not change")
+    assert t.points(SPACE)["mapper"] == "LinearColorMapper"
+    good = pd.read_csv(IS_DIR / dataset / "algorithm_bin.csv", dtype={"Row": str}).set_index("Row")
+    expected = (~good.astype(bool)).sum(axis=1)
+    values = t.wait_for(lambda: t.column(SPACE, "color_value"), "color column not found")
+    got = pd.Series([float(v) for v in values], index=t.column(SPACE, "Row"))
+    assert (got.reindex(expected.index).to_numpy() == expected.to_numpy()).all()
 
 
 # --------------------------------------------------------------------------- #
