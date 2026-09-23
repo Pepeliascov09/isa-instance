@@ -45,12 +45,15 @@ TRACE vai para coordinates_trace.csv. Tudo fica registrado em
 Requer Python 3.12 e o .venv-isa (instancespace 0.3.0); nao roda no .venv 3.11.
 """
 
+import argparse
 import copy
 import dataclasses
 import json
 import platform
 import shutil
+import sys
 import time
+import traceback
 import warnings
 from collections import Counter
 from datetime import datetime
@@ -73,7 +76,8 @@ from instancespace.stages.pythia import PythiaStage
 from instancespace.stages.sifted import SiftedStage
 from instancespace.stages.trace import TraceStage
 
-from isaspace.ui.loader_is import INTEIRA, NUMERICA, TIPOS_ANOTACAO
+from isaspace.ui.execucao import PREFIXO
+from isaspace.ui.loader_is import erros_tipos_declarados
 
 # ordem de _BUILTIN_STAGE_ORDER do instancespace; PYTHIA e CLOISTER sao a mesma
 # onda e podem rodar em qualquer ordem entre si
@@ -194,12 +198,6 @@ def _ler_metadata(path):
     return meta
 
 
-def _colunas_de_anotacao(colunas):
-    """Colunas do metadata que nao sao instances, source, feature_* nem algo_*."""
-    return [c for c in colunas if c.casefold() not in ("instances", "source")
-            and not c.casefold().startswith(("feature_", "algo_"))]
-
-
 def _ler_auxiliares(metadata_path):
     """Valida os arquivos auxiliares ao lado do metadata; devolve
     ({nome: caminho} dos presentes, tipos declarados). Erro vira ValueError
@@ -218,21 +216,9 @@ def _ler_auxiliares(metadata_path):
             tipos = json.loads(presentes["annotations.json"].read_text())
         except ValueError as exc:
             raise ValueError(f"annotations.json invalido: {exc}") from exc
-        if not isinstance(tipos, dict):
-            raise ValueError("annotations.json tem de ser um objeto {anotacao: tipo}")
-        meta = pd.read_csv(metadata_path)
-        anotacoes = _colunas_de_anotacao(list(meta.columns))
-        for col, tipo in tipos.items():
-            if tipo not in TIPOS_ANOTACAO:
-                raise ValueError(f"annotations.json: tipo {tipo!r} de {col!r} nao e um de {TIPOS_ANOTACAO}")
-            if col not in anotacoes:
-                raise ValueError(f"annotations.json: {col!r} nao e uma coluna de anotacao do metadata")
-            if tipo in (NUMERICA, INTEIRA):
-                v = pd.to_numeric(meta[col], errors="coerce")
-                if (v.isna() & meta[col].notna()).any():
-                    raise ValueError(f"annotations.json: {col!r} declarada {tipo} tem valores nao numericos")
-                if tipo == INTEIRA and (np.mod(v.dropna(), 1) != 0).any():
-                    raise ValueError(f"annotations.json: {col!r} declarada {tipo} tem valores nao inteiros")
+        erros = erros_tipos_declarados(pd.read_csv(metadata_path), tipos)
+        if erros:
+            raise ValueError("annotations.json: " + "; ".join(erros))
     return presentes, tipos
 
 
@@ -765,3 +751,37 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
         json.dumps(info, indent=2, ensure_ascii=False, default=_json_default)
     )
     return info
+
+
+def main(argv=None):
+    """Linha de comando usada pela interface (isaspace.ui.execucao) para rodar o
+    engine em subprocesso. Na saida padrao, uma linha "@@isa estagio <NOME>"
+    antes de cada estagio e, ao final, "@@isa ok <outdir>" ou "@@isa erro
+    <mensagem>" (codigo de saida 1); o resto e log.
+
+    python -m isaspace.engine --metadata M.csv --outdir PASTA [--options JSON]
+    """
+    parser = argparse.ArgumentParser(description="Roda o instancespace sobre um metadata.csv")
+    parser.add_argument("--metadata", required=True)
+    parser.add_argument("--outdir", required=True)
+    parser.add_argument("--options", default="{}", help="dict JSON sobreposto a DEFAULT_OPTIONS")
+    args = parser.parse_args(argv)
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
+
+    def sinal(texto):
+        print(f"{PREFIXO} {texto}", flush=True)
+
+    try:
+        run_instancespace(args.metadata, args.outdir, options=json.loads(args.options),
+                          progress=lambda estagio: sinal(f"estagio {estagio}"))
+    except Exception as exc:  # noqa: BLE001 -- a mensagem vai para a interface
+        traceback.print_exc()
+        sinal("erro " + f"{type(exc).__name__}: {exc}".replace("\n", " "))
+        return 1
+    sinal(f"ok {args.outdir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -39,19 +39,19 @@ def test_sem_auxiliares(entrada):
 
 
 def test_auxiliares_validos(entrada):
-    (entrada / "annotations.json").write_text(json.dumps({"classe": "categorica", "peso": "numerica_inteira"}))
+    (entrada / "annotations.json").write_text(json.dumps({"classe": "categorica", "peso": "identifier"}))
     (entrada / "degenerate_report.csv").write_text("feature,var_bruta,iqr,motivo\nd,0.0,0.0,constante\n")
     (entrada / "feature_info.csv").write_text("feature,family\na,f1\nb,f1\nc,f2\nd,f2\n")
     presentes, tipos = engine._ler_auxiliares(entrada / "metadata.csv")
     assert sorted(presentes) == ["annotations.json", "degenerate_report.csv", "feature_info.csv"]
-    assert tipos == {"classe": "categorica", "peso": "numerica_inteira"}
+    assert tipos == {"classe": "categorica", "peso": "identifier"}
 
 
 @pytest.mark.parametrize("conteudo, erro", [
-    ({"classe": "numerica"}, "nao numericos"),
-    ({"peso": "texto"}, "nao e um de"),
-    ({"feature_a": "numerica"}, "nao e uma coluna de anotacao"),
-    ({"inexistente": "numerica"}, "nao e uma coluna de anotacao"),
+    ({"classe": "numerica"}, "não numéricos"),
+    ({"peso": "texto"}, "não é um de"),
+    ({"feature_a": "numerica"}, "não é uma coluna de anotação"),
+    ({"inexistente": "numerica"}, "não é uma coluna de anotação"),
     (["classe"], "objeto"),
 ])
 def test_annotations_json_invalido_falha_antes_de_rodar(entrada, tmp_path, conteudo, erro):
@@ -66,7 +66,7 @@ def test_annotations_json_invalido_falha_antes_de_rodar(entrada, tmp_path, conte
 def test_inteira_com_valores_fracionarios_e_erro(entrada):
     (entrada / "metadata.csv").write_text(METADATA.replace(",3,0.30", ",3.5,0.30"))
     (entrada / "annotations.json").write_text(json.dumps({"peso": "numerica_inteira"}))
-    with pytest.raises(ValueError, match="nao inteiros"):
+    with pytest.raises(ValueError, match="não inteiros"):
         engine._ler_auxiliares(entrada / "metadata.csv")
 
 

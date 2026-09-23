@@ -1,6 +1,6 @@
 {
   "gerado_por": "isaspace.engine.run_instancespace",
-  "gerado_em": "2026-09-22T20:18:36",
+  "gerado_em": "2026-09-22T20:41:01",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
   "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/blood-transfusion-service-center/metadata.csv",
@@ -20,6 +20,7 @@
   "tipos_anotacao": {
     "arquivo": "annotations.json",
     "declarados": {
+      "row_original": "identifier",
       "class": "categorica",
       "ih": "numerica",
       "n_wrong": "numerica_inteira"
@@ -32,15 +33,15 @@
   ],
   "tempos_s": {
     "PREPROCESSING": 0.0,
-    "PRELIM": 0.243,
-    "SIFTED": 1.765,
-    "PILOT": 1.529,
+    "PRELIM": 0.246,
+    "SIFTED": 1.802,
+    "PILOT": 1.537,
     "deteccao_duplicatas": 0.001,
-    "PYTHIA": 6.849,
+    "PYTHIA": 7.055,
     "CLOISTER": 0.003,
-    "TRACE": 2.824,
-    "build_total": 13.224,
-    "escrita": 0.029
+    "TRACE": 2.838,
+    "build_total": 13.491,
+    "escrita": 0.033
   },
   "trace_robustez": {
     "limiar": 1e-06,

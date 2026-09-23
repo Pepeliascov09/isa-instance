@@ -17,21 +17,39 @@ resultado. Os resultados para quatro datasets já estão versionados em
 
 ## O que a interface mostra
 
-- **Instance Space**: espaço de dados (PCA dos atributos originais) e espaço de
-  instâncias (PILOT) lado a lado sobre o mesmo DataFrame; a seleção por *lasso*
-  ou caixa num destaca os mesmos pontos no outro e alimenta as demais abas.
-- **Footprint Performance**: mapa z_1 x z_2 com as *footprints* (good ou best,
-  de um algoritmo ou de todos) e a tabela `footprint_performance.csv`, com as
-  *footprints* vazias ou de pureza abaixo do limiar sinalizadas.
-- **Distributions**: histograma ou boxplot de até seis variáveis (medidas,
-  desempenhos, `ih`, `n_wrong`) comparando todas as instâncias com as
-  selecionadas.
-- **Data Explorer**: scatter x-y com cor configurável, filtro `pandas.query`
-  e tabela das linhas filtradas.
+O app atual (`isaspace/ui/app.py`, Panel 1.x) tem seis abas sobre um estado
+global único: a seleção feita por *lasso* ou caixa na aba Instance Space e a
+variável de cor valem em todas.
 
-Na barra lateral ficam fixos o seletor de dataset, o botão de recarregar e os
-números do resultado (instâncias, features no PILOT, features descartadas,
-algoritmos); o bloco de baixo troca conforme a aba ativa.
+- **Instance Space**: espaço de instâncias (PILOT) colorido por qualquer
+  anotação, feature, desempenho ou coluna derivada; sobreposições de
+  *footprints*, da fronteira do CLOISTER e da *footprint* hard.
+- **Footprint Performance**: mapa com as *footprints* (good ou best, de um
+  algoritmo ou de todos) e a tabela `footprint_performance.csv`, com as vazias
+  ou de pureza abaixo do limiar sinalizadas.
+- **Algorithm Selection**: o que o PYTHIA e o CLOISTER produziram. Mapa colorido
+  pelo algoritmo recomendado (selection0, com *nenhum* como categoria), pela
+  concordância com o melhor observado ou pelo `pr0_sub` (P(ruim) fora da
+  amostra) de um algoritmo, com a fronteira do CLOISTER. Mostra também a
+  `svm_table` (acurácia, precisão e recall de CV, mais Oracle e Selector) e as
+  matrizes de confusão da validação cruzada. Um aviso aparece quando o seletor
+  recomenda o mesmo algoritmo para mais de 90% das instâncias.
+- **Distributions**: histograma, densidade ou violino de até seis variáveis,
+  agrupados por uma anotação categórica e divididos em selecionadas e não
+  selecionadas.
+- **Features**: uma linha por feature recebida, com o que o PILOT usou e por
+  que o resto caiu, o heatmap das correlações do SIFTED e a silhueta por k.
+- **Data Explorer**: scatter x-y com a cor global, filtro `pandas.query`,
+  botão "usar filtro como seleção" e tabela das linhas filtradas.
+
+A barra lateral tem:
+
+- o seletor de dataset, com `resultados/is/` e `runs/` em grupos separados;
+- o bloco **Novo instance space** (ver "Rodar um metadata novo");
+- os números do resultado e os tipos inferidos das anotações;
+- a exportação (todas as instâncias, a seleção, os rótulos de uma *footprint*).
+
+O bloco de baixo troca conforme a aba ativa.
 
 ## Limitações (leia antes de interpretar)
 
@@ -135,9 +153,50 @@ em `docs/output_format.md`):
 .venv-isa/bin/python -m isaspace.ui.app
 ```
 
-Abre o navegador em <http://localhost:5006>. Opções: `--no-show` (não abre o
-navegador), `--port N` e `--root PASTA` (outra pasta no formato de
-`resultados/is/`).
+Abre o navegador em <http://localhost:5006>. Opções:
+
+- `--no-show`: não abre o navegador;
+- `--port N`;
+- `--root PASTA`: outra pasta no formato de `resultados/is/`;
+- `--runs PASTA`: onde gravar as execuções disparadas pela interface
+  (padrão `runs/`, fora do git).
+
+### Rodar um metadata novo
+
+No bloco **Novo instance space** da barra lateral:
+
+1. Envie um `metadata.csv` e, se quiser, `annotations.json` e
+   `feature_info.csv` (formato em `docs/output_format.md`). O arquivo é validado
+   na hora, e os erros aparecem em texto, sem traceback:
+   - coluna `instances` presente e sem rótulos repetidos;
+   - pelo menos 3 `feature_*` e 2 `algo_*`;
+   - valores numéricos;
+   - NaN reportado por coluna.
+2. Escolha a **direção** (maior ou menor é melhor), o **limiar** (absoluto ou
+   relativo ao melhor da instância) e o ε. Não há padrão: o botão Rodar ISA só
+   habilita depois da escolha. A prévia mostra a fração de instâncias boas por
+   algoritmo, com a mesma regra do PRELIM. Um aviso aparece se algum algoritmo
+   fica abaixo de 5% ou acima de 95%. Com limiar absoluto, inverter a direção
+   troca essa fração por 1 − fração, então o aviso aparece nas duas direções ou
+   em nenhuma. Ele sinaliza limiar mal posicionado, mas não detecta sozinho uma
+   direção trocada.
+3. Em "Opções avançadas" ficam o k do SIFTED e o `trace.usesim`.
+4. **Rodar ISA** dispara o engine em subprocesso, com progresso por estágio. A
+   interface continua usável enquanto roda. O resultado vai para
+   `runs/<nome>_<AAAAMMDD-HHMMSS>/`, com os arquivos enviados em `entrada/` e a
+   saída do subprocesso em `execucao.log`, e abre sozinho ao terminar.
+
+O tempo estimado vem de medidas em metadata sintético com 10 features e 6
+algoritmos, feitas por `scripts/medir_tempo_engine.py` num Apple M5:
+
+| instâncias | tempo |
+|---|---|
+| 500 | ~10 s |
+| 1000 | ~24 s |
+| 2000 | ~77 s |
+
+O PYTHIA responde por ~50% (500) a ~87% (2000) do tempo e cresce com o número de algoritmos.
+A partir de 1000 instâncias o bloco mostra o aviso de tempo.
 
 O app anterior (Panel 0.14, pyispace, `resultados/isa/`) continua em
 `isaspace/ui/app_legacy.py` e roda no `.venv`: `python -m isaspace.ui.app_legacy`.
@@ -164,9 +223,16 @@ Com o `.venv-isa` (pytest e Playwright; o Chromium do Playwright se instala com
 .venv-isa/bin/python -m pytest tests/ -m "not e2e"    # só os rápidos, segundos
 ```
 
-`tests/test_loader_is.py` e `tests/test_engine.py` testam o loader e a validação
-do engine sobre `resultados/is/`; `tests/test_app_e2e.py` sobe o app e o usa num
-Chromium real, com uma página nova por teste, nos quatro datasets.
+- `tests/test_loader_is.py` e `tests/test_engine.py` testam o loader e a
+  validação do engine sobre `resultados/is/`.
+- `tests/test_upload.py` testa a validação do upload e a fração de boas
+  (conferida contra `compute_binary_performance` do instancespace), além do
+  disparo do engine em subprocesso.
+- `tests/test_app_e2e.py` sobe o app, com uma pasta `runs/` temporária, e o usa
+  num Chromium real, com uma página nova por teste, nos quatro datasets.
+  Cobre também o upload do metadata de exemplo do instancespace (baixado do
+  GitHub, tag v0.3.0, para o cache do pytest; pulado sem rede) e o ciclo
+  "exportar seleção → subir como metadata → rodar".
 
 `scripts/verify_browser.py` é o teste de regressão da interface legada. Ele controla
 um Edge ou Chrome headless pelo DevTools Protocol e, contra um app já servido,
@@ -192,11 +258,15 @@ python scripts/verify_browser.py --url http://localhost:5006/ --desconexao 5012
 - `isaspace/ui/app_legacy.py`: a interface de quatro abas anterior (Panel 0.14, sobre `loader.py`).
 - `isaspace/engine.py`: roda o `instancespace` e grava `resultados/is/<nome>/` (`docs/output_format.md`).
 - `isaspace/ui/loader_is.py`: leitor da saída do engine (`IsResult`).
-- `isaspace/ui/app.py`: a interface das quatro abas (Panel 1.x, sobre `loader_is.py`).
+- `isaspace/ui/app.py`: a interface das seis abas (Panel 1.x, sobre `loader_is.py`).
+- `isaspace/ui/novo.py`: o bloco "Novo instance space" da barra lateral.
+- `isaspace/ui/upload.py`: a validação do upload, a fração de boas (regra do PRELIM) e a estimativa de tempo (só pandas e numpy).
+- `isaspace/ui/execucao.py`: o único módulo da interface que conhece o engine. Dispara `python -m isaspace.engine` em subprocesso e lê o progresso.
 - `scripts/apply_pyispace_patch.py`: patch do pyispace para Python 3.11.
 - `scripts/run_isa_all.py`: PILOT + TRACE para cada dataset.
 - `scripts/build_metadata.py`: metadata do IC7 e arquivos auxiliares, sem o pyispace.
 - `scripts/run_is_all.py`: `instancespace` para cada dataset, em `resultados/is/`.
+- `scripts/medir_tempo_engine.py`: tempo do engine em metadata sintético (base da estimativa de tempo do upload).
 - `docs/output_format.md`: contrato da pasta de saída entre o engine e a interface.
 - `tests/`: testes do loader, do engine e de ponta a ponta do app.
 - `scripts/build_data_space.py`: espaço de dados (PCA) para a interface.
@@ -204,14 +274,20 @@ python scripts/verify_browser.py --url http://localhost:5006/ --desconexao 5012
 - `scripts/exploratorio/`: os dez scripts de experimento da primeira fase (demo, diagnóstico, contraste com meta-features via PyMFE, transferência entre datasets, e as versões antigas de projeção por PCA e *footprint* por grade); rodam da raiz com `python -m scripts.exploratorio.<nome>` e seus números estão em `resumo.md`.
 - `run_table.py`: gera `resultados/table_<nome>.csv` (passo 1 de "Como gerar os dados"); é o único script da primeira fase que continua no pipeline.
 - `patches/README.md`: descrição do bug do pyispace e do patch.
-- `resultados/`: `table_<nome>.csv`, `isa/<nome>/` (saídas MATILDA) e PNGs dos experimentos iniciais.
+- `resultados/`: `table_<nome>.csv`, `isa/<nome>/` (saídas MATILDA), `is/<nome>/` (saídas do `instancespace`) e PNGs dos experimentos iniciais.
+- `runs/` (fora do git): execuções disparadas pela interface.
 - `resumo.md`: resumo técnico dos resultados da primeira fase.
 - `requirements.txt`: dependências com versões fixas.
 
-`isaspace/ui/` é deliberadamente independente do backend de cálculo: lê uma
-pasta no formato MATILDA (`resultados/isa/<nome>/`) e a tabela por instância, e
-não importa pyispace, pyhard nem scikit-learn; o que faltar na pasta é gerado
-pelos scripts, nunca pela interface.
+`isaspace/ui/` é deliberadamente independente do backend de cálculo:
+
+- a interface lê as pastas de saída do engine via `loader_is.py`;
+- ela não importa instancespace, pyispace, pyhard nem scikit-learn;
+- só `execucao.py` conhece o engine, e o roda em subprocesso;
+- o que faltar numa pasta é gerado pelo engine ou pelos scripts, nunca pela
+  interface.
+
+(O app legado, `app_legacy.py`, lê o formato MATILDA de `resultados/isa/`.)
 
 ## Referências
 

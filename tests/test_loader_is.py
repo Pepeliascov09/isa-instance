@@ -23,7 +23,7 @@ sys.path.insert(0, str(RAIZ))
 from isaspace.ui import loader_is  # noqa: E402
 from isaspace.ui.loader import _split_polygons  # noqa: E402  (loader antigo)
 from isaspace.ui.loader_is import (  # noqa: E402
-    CATEGORICA, INTEIRA, NUMERICA, OK, VAZIA, Poligono, load_is_output,
+    CATEGORICA, IDENTIFICADOR, INTEIRA, NUMERICA, OK, VAZIA, Poligono, load_is_output,
 )
 
 PASTA_IS = RAIZ / "resultados" / "is"
@@ -279,14 +279,16 @@ def test_loader_novo_recusa_a_pasta_do_pyispace():
 # --------------------------------------------------------------------------- #
 def test_tipos_declarados_vem_do_annotations_json(resultado):
     declarados = json.loads((resultado.path / "annotations.json").read_text())
-    assert declarados == {"class": CATEGORICA, "ih": NUMERICA, "n_wrong": INTEIRA}
+    assert declarados == {"row_original": IDENTIFICADOR, "class": CATEGORICA, "ih": NUMERICA,
+                          "n_wrong": INTEIRA}
     assert resultado.run_info["tipos_anotacao"]["declarados"] == declarados
     for col, tipo in declarados.items():
         assert resultado.annotations[col] == tipo
         assert resultado.annotation_origins[col] == "declarado"
-    # row_original nao esta declarada: tipo pela heuristica, marcado como inferido
-    assert resultado.annotation_origins["row_original"] == "inferido"
-    assert resultado.anotacoes_inferidas == ["row_original"]
+    # o gerador do IC7 declara tudo: nada inferido; row_original e identificador
+    assert resultado.anotacoes_inferidas == []
+    ro = resultado.instances["row_original"]
+    assert pd.api.types.is_integer_dtype(ro) and ro.is_unique       # valores como vieram
     assert pd.api.types.is_numeric_dtype(resultado.instances["n_wrong"])
     assert resultado.instances["class"].map(type).eq(str).all()
 
@@ -506,9 +508,9 @@ def test_sintetico_sem_arquivos_auxiliares(pasta_sintetica):
 
 
 @pytest.mark.parametrize("declaracao, erro", [
-    ({"grupo": NUMERICA}, "nao numericos"),          # 'x', 'y' nao sao numeros
-    ({"peso": "texto"}, "invalido"),
-    ({"feature_f1": NUMERICA}, "nao sao anotacoes"),
+    ({"grupo": NUMERICA}, "não numéricos"),          # 'x', 'y' nao sao numeros
+    ({"peso": "texto"}, "não é um de"),
+    ({"feature_f1": NUMERICA}, "não é uma coluna de anotação"),
 ])
 def test_sintetico_declaracao_invalida_e_erro(pasta_sintetica, declaracao, erro):
     (pasta_sintetica / "annotations.json").write_text(json.dumps(declaracao))
@@ -516,11 +518,24 @@ def test_sintetico_declaracao_invalida_e_erro(pasta_sintetica, declaracao, erro)
         load_is_output(pasta_sintetica)
 
 
-def test_sintetico_declaracao_valida(pasta_sintetica):
-    (pasta_sintetica / "annotations.json").write_text(json.dumps({"peso": INTEIRA, "z_1": NUMERICA}))
+def test_sintetico_inteira_com_fracao_e_erro(pasta_sintetica):
+    (pasta_sintetica / "annotations.json").write_text(json.dumps({"peso": INTEIRA}))
+    with pytest.raises(ValueError, match="não inteiros"):
+        load_is_output(pasta_sintetica)
+
+
+def test_sintetico_identificador(pasta_sintetica):
+    (pasta_sintetica / "annotations.json").write_text(json.dumps({"peso": IDENTIFICADOR}))
     r = load_is_output(pasta_sintetica)
-    assert r.annotations["peso"] == INTEIRA and r.annotation_origins["peso"] == "declarado"
-    assert r.annotations["ann_z_1"] == NUMERICA and r.annotation_origins["ann_z_1"] == "declarado"
+    assert r.annotations["peso"] == IDENTIFICADOR and r.annotation_origins["peso"] == "declarado"
+    assert list(r.instances["peso"]) == [0.5, 1.5, 2.5, 3.5]          # valores como vieram
+
+
+def test_sintetico_declaracao_valida(pasta_sintetica):
+    (pasta_sintetica / "annotations.json").write_text(json.dumps({"peso": NUMERICA, "z_1": INTEIRA}))
+    r = load_is_output(pasta_sintetica)
+    assert r.annotations["peso"] == NUMERICA and r.annotation_origins["peso"] == "declarado"
+    assert r.annotations["ann_z_1"] == INTEIRA and r.annotation_origins["ann_z_1"] == "declarado"
     assert r.annotation_origins["grupo"] == "inferido"
 
 

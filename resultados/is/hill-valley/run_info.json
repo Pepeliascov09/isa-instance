@@ -1,6 +1,6 @@
 {
   "gerado_por": "isaspace.engine.run_instancespace",
-  "gerado_em": "2026-09-22T20:19:08",
+  "gerado_em": "2026-09-22T20:41:34",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
   "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/hill-valley/metadata.csv",
@@ -20,6 +20,7 @@
   "tipos_anotacao": {
     "arquivo": "annotations.json",
     "declarados": {
+      "row_original": "identifier",
       "class": "categorica",
       "ih": "numerica",
       "n_wrong": "numerica_inteira"
@@ -32,15 +33,15 @@
   ],
   "tempos_s": {
     "PREPROCESSING": 0.001,
-    "PRELIM": 0.228,
-    "SIFTED": 1.22,
-    "PILOT": 1.595,
+    "PRELIM": 0.23,
+    "SIFTED": 1.236,
+    "PILOT": 1.603,
     "deteccao_duplicatas": 0.002,
-    "PYTHIA": 26.221,
+    "PYTHIA": 26.693,
     "CLOISTER": 0.004,
-    "TRACE": 3.037,
-    "build_total": 32.317,
-    "escrita": 0.04
+    "TRACE": 3.025,
+    "build_total": 32.803,
+    "escrita": 0.043
   },
   "trace_robustez": {
     "limiar": 1e-06,

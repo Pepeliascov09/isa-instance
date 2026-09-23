@@ -2,9 +2,14 @@
 
 Sobe o app uma vez (python -m isaspace.ui.app, com o interpretador do pytest)
 e abre uma pagina NOVA a cada teste, portanto uma sessao nova do servidor e um
-estado global novo. Cada teste roda nos quatro datasets de resultados/is/.
-O lasso e desenhado com o mouse, dentro da area de plotagem, a partir das
-coordenadas de tela calculadas pelo proprio BokehJS.
+estado global novo. A maioria dos testes roda nos quatro datasets de
+resultados/is/. O lasso e desenhado com o mouse, dentro da area de plotagem, a
+partir das coordenadas de tela calculadas pelo proprio BokehJS.
+
+O servidor usa uma pasta runs/ temporaria (--runs): os testes do bloco "Novo
+instance space" rodam o engine de verdade, em subprocesso, e as execucoes
+ficam nela. O metadata de exemplo do instancespace e baixado do GitHub (tag
+v0.3.0) para o cache do pytest; sem rede, esse teste e pulado.
 
 Precisa do .venv-isa com playwright e do Chromium do Playwright
 (python -m playwright install chromium). Uso, da raiz:
@@ -12,6 +17,7 @@ Precisa do .venv-isa com playwright e do Chromium do Playwright
     .venv-isa/bin/python -m pytest tests/ -m "not e2e"     (so os rapidos)
 """
 
+import json
 import math
 import re
 import socket
@@ -32,6 +38,9 @@ PASTA_IS = RAIZ / "resultados" / "is"
 DATASETS = ["iris", "diabetes", "blood-transfusion-service-center", "hill-valley"]
 TITULO = "isa-instance"
 TIMEOUT = 25  # s por espera
+TIMEOUT_EXECUCAO = 180   # s para o engine terminar (exemplo ~5 s, ciclo ~10 s)
+URL_EXEMPLO = ("https://raw.githubusercontent.com/andremun/pyInstanceSpace/v0.3.0/"
+               "examples/data/metadata.csv")
 
 pytestmark = pytest.mark.e2e
 
@@ -110,6 +119,19 @@ TABELA_JS = r"""(coluna) => {
   }
   return null;
 }"""
+# texto de um componente Panel, atravessando os shadow roots (inner_text nao entra neles)
+TEXTO_JS = r"""(e) => {
+  const f = (n) => {
+    let s = n.shadowRoot ? f(n.shadowRoot) : "";
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) s += c.textContent;
+      else if (c.nodeType === 1 && ["STYLE", "SCRIPT"].includes(c.tagName)) continue;
+      else if (c.nodeType === 1 || c.nodeType === 11) s += (c.tagName === "BR" ? "\n" : "") + f(c) + " ";
+    }
+    return s;
+  };
+  return f(e).replace(/[ \t]+/g, " ");
+}"""
 RE_STATUS = re.compile(r"Sem seleção\.|Seleção vazia|\d+ instâncias selecionadas")
 ESPACO = "Espaço de instâncias"
 EXPLORER = "z_1 x z_2"   # titulo do scatter do Data Explorer com os eixos padrao
@@ -122,12 +144,18 @@ def _porta_livre():
 
 
 @pytest.fixture(scope="session")
-def servidor():
+def pasta_runs(tmp_path_factory):
+    return tmp_path_factory.mktemp("runs")
+
+
+@pytest.fixture(scope="session")
+def servidor(pasta_runs):
     if not all((PASTA_IS / d / "run_info.json").is_file() for d in DATASETS):
         pytest.skip("resultados/is incompleto (rode scripts/run_is_all.py no .venv-isa)")
     porta = _porta_livre()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "isaspace.ui.app", "--no-show", "--port", str(porta)],
+        [sys.executable, "-m", "isaspace.ui.app", "--no-show", "--port", str(porta),
+         "--runs", str(pasta_runs)],
         cwd=RAIZ, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
     url = f"http://localhost:{porta}/"
@@ -275,6 +303,55 @@ class Tela:
 
     def escolher_cor(self, rotulo_select, rotulo_opcao):
         self.page.get_by_label(rotulo_select, exact=True).select_option(label=rotulo_opcao)
+
+    def texto(self, classe):
+        """Texto do primeiro componente com a css_class `classe` ('' se nao ha)."""
+        loc = self.page.locator(f".{classe}")
+        return loc.first.evaluate(TEXTO_JS) if loc.count() else ""
+
+    # ------------------------------------------------- Novo instance space
+    def abrir_novo(self):
+        cab = self.page.locator(".card-header", has_text="Novo instance space").first
+        cab.click()
+        self.esperar(lambda: self.page.get_by_role("button", name="Rodar ISA").is_visible(),
+                     "o bloco Novo instance space nao abriu")
+
+    def enviar(self, classe, caminho):
+        self.page.locator(f".{classe} input[type=file]").set_input_files(str(caminho))
+
+    def escolher_regra(self, direcao, limiar, eps):
+        self.page.get_by_label("Direção do desempenho", exact=True).select_option(label=direcao)
+        self.page.get_by_label("Limiar", exact=True).select_option(label=limiar)
+        campo = self.page.get_by_label("ε (epsilon)", exact=True)
+        campo.fill(str(eps))
+        campo.press("Tab")
+
+    def nomear(self, nome):
+        campo = self.page.get_by_label("Nome da execução", exact=True)
+        campo.fill(nome)
+        campo.press("Tab")
+
+    def rodar(self, nome, abas_durante=("Features",)):
+        """Clica em Rodar ISA, troca de aba durante a execucao (a interface
+        continua usavel) e espera o dataset novo abrir; devolve (pasta,
+        mensagens de progresso vistas)."""
+        botao = self.page.get_by_role("button", name="Rodar ISA")
+        self.esperar(lambda: botao.is_enabled(), "botao Rodar ISA nao habilitou")
+        botao.click()
+        vistos, fim = [], time.time() + TIMEOUT_EXECUCAO
+        pendentes = list(abas_durante)
+        while time.time() < fim:
+            status = self.texto("novo-status")
+            if status and (not vistos or vistos[-1] != status):
+                vistos.append(status)
+            if pendentes and "Rodando" in status:
+                self.aba(pendentes.pop(0))
+            titulo = self.page.evaluate("document.title")
+            if titulo.startswith(f"{TITULO} - {nome}_"):
+                return titulo[len(f"{TITULO} - "):], vistos
+            assert "Falhou" not in status, status
+            self.page.wait_for_timeout(250)
+        raise AssertionError(f"execucao nao terminou em {TIMEOUT_EXECUCAO} s: {vistos[-3:]}")
 
 
 @pytest.fixture
@@ -477,3 +554,174 @@ def test_aba_features_do_iris_lista_todas_as_features_e_as_degeneradas(tela):
     assert t.page.get_by_text("19 features recebidas").count() == 1
     assert any(p["titulo"].startswith("rho de Pearson") for p in t.plots())      # heatmap
     assert any("k usado = 6" in p["titulo"] for p in t.plots())                  # silhueta
+
+
+# --------------------------------------------------------------------------- #
+# Novo instance space (upload, validacao, execucao em subprocesso)
+# --------------------------------------------------------------------------- #
+@pytest.fixture(scope="session")
+def metadata_exemplo(request):
+    """metadata.csv de exemplo do repositorio do instancespace (tag v0.3.0),
+    baixado uma vez para o cache do pytest (licenca nao comercial: nao vai
+    para o repositorio)."""
+    destino = request.config.cache.mkdir("instancespace_v0.3.0") / "metadata.csv"
+    if not destino.is_file():
+        try:
+            with urllib.request.urlopen(URL_EXEMPLO, timeout=30) as resp:
+                destino.write_bytes(resp.read())
+        except OSError as exc:
+            pytest.skip(f"sem acesso ao metadata de exemplo ({exc})")
+    return destino
+
+
+def _grupos_do_seletor(t):
+    return t.page.get_by_label("Dataset", exact=True).evaluate(
+        "e => Object.fromEntries([...e.querySelectorAll('optgroup')].map("
+        "g => [g.label, [...g.querySelectorAll('option')].map(o => o.text)]))")
+
+
+def _conferir_todas_as_abas(t, n):
+    """Abre as seis abas do dataset ativo; o scatter tem n pontos e nenhuma
+    aba mostra traceback."""
+    t.aba("Instance Space")
+    t.esperar(lambda: (t.pontos(ESPACO) or {}).get("n") == n, f"scatter nao tem {n} pontos")
+    t.aba("Footprint Performance")
+    t.esperar(lambda: (t.pontos("Footprints") or {}).get("n") == n, "mapa de footprints")
+    t.aba("Algorithm Selection")
+    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("n") == n,
+              "mapa da Algorithm Selection")
+    t.aba("Distributions")
+    t.esperar(lambda: len(t.plots()) >= 1, "Distributions sem graficos")
+    t.aba("Features")
+    t.esperar(lambda: t.page.get_by_text(re.compile(r"\d+ features recebidas")).count() == 1,
+              "Features sem resumo")
+    t.aba("Data Explorer")
+    t.esperar(lambda: (t.pontos(EXPLORER) or {}).get("n") == n, "Data Explorer")
+    assert t.page.get_by_text("Traceback").count() == 0
+
+
+def test_upload_quebrado_mostra_erro_sem_traceback(tela, tmp_path):
+    t, url = tela
+    t.abrir(url, "iris")
+    t.abrir_novo()
+    quebrado = tmp_path / "quebrado.csv"
+    quebrado.write_text("instances,feature_a,feature_b,algo_x,algo_y\n1,1,2,0.1,0.2\n1,x,4,0.5,0.6\n")
+    t.enviar("novo-metadata", quebrado)
+    texto = t.esperar(lambda: t.texto("novo-erros"), "o erro de validacao nao apareceu")
+    assert "pelo menos 3 colunas feature_*" in texto and "o arquivo tem 2" in texto
+    assert t.page.get_by_text("Traceback").count() == 0
+    assert t.page.get_by_role("button", name="Rodar ISA").is_disabled()
+
+
+def test_upload_do_exemplo_do_instancespace_roda_e_abre_as_abas(tela, pasta_runs, metadata_exemplo):
+    """Metadata do repositorio do instancespace, sem anotacoes: escolher a
+    direcao, rodar, e abrir todas as abas do resultado."""
+    t, url = tela
+    t.abrir(url, "iris")
+    t.abrir_novo()
+    t.enviar("novo-metadata", metadata_exemplo)
+    t.esperar(lambda: t.page.get_by_text(re.compile(r"212 instâncias, 10 features, 10 algoritmos"))
+              .count() == 1, "resumo do metadata nao apareceu")
+    botao = t.page.get_by_role("button", name="Rodar ISA")
+    assert botao.is_disabled()                       # direcao ainda nao escolhida
+    assert t.page.get_by_text(re.compile("falta escolher: a direção do desempenho")).count() == 1
+    t.escolher_regra("menor é melhor", "absoluto", 0.2)          # options.json do exemplo
+    t.esperar(lambda: t.page.get_by_text("Prévia (regra do PRELIM):", exact=False).count() >= 1,
+              "previa da fracao de boas nao apareceu")
+    t.nomear("exemplo_e2e")
+    nome, vistos = t.rodar("exemplo_e2e")
+    assert any(re.search(r"estágio \d de 7", v) for v in vistos), vistos
+    t.esperar(lambda: "Concluído" in t.texto("novo-status"), "status nao mostra Concluído")
+    pasta = pasta_runs / nome
+    assert (pasta / "run_info.json").is_file() and (pasta / "execucao.log").is_file()
+    assert (pasta / "entrada" / "metadata.csv").read_bytes() == metadata_exemplo.read_bytes()
+    opcoes = json.loads((pasta / "run_options.json").read_text())
+    assert opcoes["perf"] == {**opcoes["perf"], "max_perf": False, "abs_perf": True, "epsilon": 0.2}
+    assert opcoes["trace"]["use_sim"] is False and opcoes["sifted"]["k"] == 6
+    grupos = _grupos_do_seletor(t)
+    assert nome in grupos["runs (execuções pela interface)"]
+    assert "iris" in grupos["resultados/is"] and nome not in grupos["resultados/is"]
+    n = len(pd.read_csv(pasta / "coordinates.csv"))
+    _conferir_todas_as_abas(t, n)
+
+
+def test_ciclo_exportar_selecao_e_subir_como_metadata(tela, pasta_runs, tmp_path):
+    """Exporta a selecao (filtro z_1 < 0 do diabetes), sobe o CSV exportado
+    como metadata novo, roda, e confere que a contagem de instancias bate."""
+    t, url = tela
+    t.abrir(url, "diabetes")
+    t.aba("Data Explorer")
+    t.page.get_by_label("Filtro (pandas query)", exact=True).fill("z_1 < 0")
+    t.page.get_by_label("Filtro (pandas query)", exact=True).press("Enter")
+    usar = t.page.get_by_role("button", name="Usar filtro como seleção")
+    t.esperar(lambda: usar.is_enabled(), "botao usar filtro nao habilitou")
+    usar.click()
+    n = t.esperar(lambda: t.n_status(), "o filtro nao virou selecao")
+    esperado = int((pd.read_csv(PASTA_IS / "diabetes" / "coordinates.csv")["z_1"] < 0).sum())
+    assert n == esperado
+    botao = t.page.get_by_role("button", name=f"Exportar seleção ({n})")
+    t.esperar(lambda: botao.is_enabled(), "botao de exportar a selecao nao habilitou")
+    with t.page.expect_download() as info:
+        botao.click()
+    exportado = tmp_path / "diabetes_selecao.csv"
+    info.value.save_as(exportado)
+    assert len(pd.read_csv(exportado)) == n
+
+    t.abrir_novo()
+    t.enviar("novo-metadata", exportado)
+    t.esperar(lambda: t.page.get_by_text(re.compile(rf"{n} instâncias, ")).count() == 1,
+              "resumo do metadata exportado nao apareceu")
+    t.escolher_regra("maior é melhor", "absoluto", 0.5)
+    t.nomear("ciclo_e2e")
+    nome, _ = t.rodar("ciclo_e2e")
+    pasta = pasta_runs / nome
+    assert len(pd.read_csv(pasta / "coordinates.csv")) == n
+    assert json.loads((pasta / "run_info.json").read_text())["n_instancias"] == n
+    t.esperar(lambda: t.page.get_by_text(re.compile(rf"Instâncias: {n}\b")).count() >= 1,
+              f"sidebar nao mostra {n} instancias")
+    t.aba("Instance Space")
+    t.esperar(lambda: (t.pontos(ESPACO) or {}).get("n") == n, f"scatter nao tem {n} pontos")
+
+
+def test_direcao_invertida_dispara_aviso(tela):
+    """iris com 'menor é melhor' (o certo e maior): as frações de boas caem
+    abaixo de 5% e o aviso aparece, sem bloquear o botao."""
+    t, url = tela
+    t.abrir(url, "iris")
+    t.abrir_novo()
+    t.enviar("novo-metadata", PASTA_IS / "iris" / "metadata.csv")
+    t.esperar(lambda: t.page.get_by_text(re.compile(r"150 instâncias, ")).count() == 1,
+              "resumo do iris nao apareceu")
+    t.escolher_regra("menor é melhor", "absoluto", 0.5)
+    texto = t.esperar(lambda: t.texto("novo-aviso-direcao"), "aviso de direcao nao apareceu")
+    assert "Confira a direção" in texto and "knn" in texto and "menos de 5,0%" in texto
+    assert t.page.get_by_role("button", name="Rodar ISA").is_enabled()
+
+
+def test_algorithm_selection_avisa_seletor_trivial_no_iris(tela):
+    t, url = tela
+    t.abrir(url, "iris")
+    t.aba("Algorithm Selection")
+    texto = t.esperar(lambda: t.texto("as-trivial"), "aviso de seletor trivial nao apareceu no iris")
+    assert "Seletor quase trivial" in texto and "logreg" in texto and "143 de 150" in texto
+    assert t.page.get_by_text(re.compile(r"pr0_sub.*fora da amostra")).count() >= 1
+    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("n") == 150, "mapa do iris")
+    assert len(t.page.locator(".as-confusao").all()) == 6
+    t.aba("Instance Space")               # escolher_dataset espera o scatter da aba 0
+    t.escolher_dataset("hill-valley")     # logreg em 853 de 1212 (70%): sem aviso
+    t.aba("Algorithm Selection")
+    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("n") == 1212,
+              "mapa do hill-valley")
+    assert t.page.locator(".as-trivial").count() == 0
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_algorithm_selection_destaca_a_selecao(tela, dataset):
+    t, url = tela
+    t.abrir(url, dataset)
+    t.lasso_com_pontos()
+    n = t.esperar(lambda: t.n_status(), "o lasso nao selecionou nada")
+    t.aba("Algorithm Selection")
+    t.esperar(lambda: t.n_status() == n, f"Algorithm Selection: status nao mostra {n}")
+    t.esperar(lambda: (t.pontos("Algoritmo recomendado") or {}).get("hi") == n,
+              f"Algorithm Selection: mapa nao destaca {n} pontos")

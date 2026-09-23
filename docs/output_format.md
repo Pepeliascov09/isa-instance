@@ -6,6 +6,19 @@ Uma pasta corresponde a uma execução sobre um `metadata.csv`. As pastas
 versionadas estão em `resultados/is/<nome>/` e são geradas por
 `scripts/run_is_all.py`.
 
+As execuções disparadas pela interface (bloco "Novo instance space") ficam em
+`runs/<nome>_<AAAAMMDD-HHMMSS>/`, fora do git. O engine roda em subprocesso
+(`python -m isaspace.engine --metadata ... --outdir ... --options '<json>'`,
+lançado por `isaspace.ui.execucao`), e a pasta segue este contrato com dois
+itens a mais, que o engine não toca:
+
+- `entrada/`: os arquivos enviados (`metadata.csv` e, se enviados,
+  `annotations.json` e `feature_info.csv`); é daqui que o engine lê;
+- `execucao.log`: toda a saída do subprocesso (logs do instancespace e, em
+  caso de erro, o traceback). As linhas que começam com `@@isa` são o protocolo
+  de progresso: `@@isa estagio <NOME>` antes de cada estágio, `@@isa ok
+  <pasta>` no fim e `@@isa erro <mensagem>` em caso de falha (código de saída 1).
+
 A antiga `resultados/isa/<nome>/` (pyispace, lida por `isaspace/ui/loader.py`)
 tem outro formato e não segue este contrato.
 
@@ -158,8 +171,17 @@ declaração existe.
 
 ### `annotations.json` (eng, cópia opcional)
 
-Objeto JSON `{anotação: tipo}`, com `tipo` ∈ `"categorica"`, `"numerica"` e
-`"numerica_inteira"` (numérica cujos valores são inteiros, como contagens).
+Objeto JSON `{anotação: tipo}`, com `tipo` ∈:
+
+- `"categorica"`;
+- `"numerica"`;
+- `"numerica_inteira"`: numérica cujos valores são inteiros, como contagens;
+- `"identifier"`: chave ou id (no IC7, `row_original`, o índice da linha no
+  dataset do OpenML). O valor é mantido como veio. A coluna aparece na tabela
+  do Data Explorer e na exportação, mas fica fora dos seletores de cor e de
+  "agrupar por". A heurística nunca infere esse tipo: ele só vem declarado ou
+  escolhido na sessão.
+
 As chaves usam o nome da coluna no `metadata.csv`. Nem toda anotação precisa
 estar declarada.
 

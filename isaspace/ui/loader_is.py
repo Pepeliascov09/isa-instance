@@ -54,7 +54,8 @@ TIPOS_FOOTPRINT = ("good", "best")
 NUMERICA = "numerica"
 CATEGORICA = "categorica"
 INTEIRA = "numerica_inteira"     # numerica com valores inteiros (contagens)
-TIPOS_ANOTACAO = (CATEGORICA, NUMERICA, INTEIRA)
+IDENTIFICADOR = "identifier"     # chave/id: fica na tabela e na exportacao, fora dos graficos
+TIPOS_ANOTACAO = (CATEGORICA, NUMERICA, INTEIRA, IDENTIFICADOR)
 OK, VAZIA, SUSPEITA = "ok", "vazia", "suspeita"
 COLUNAS_FOOTPRINT = ["Row", "Part", "Ring", "Vertex", "z_1", "z_2"]
 _BOOL = {"true": True, "false": False, "1": True, "0": False, "1.0": True, "0.0": False}
@@ -70,6 +71,34 @@ def _area(anel) -> float:
 
 def e_numerica(tipo: str) -> bool:
     return tipo in (NUMERICA, INTEIRA)
+
+
+def colunas_de_anotacao(colunas) -> list:
+    """Colunas do metadata que nao sao instances, source, feature_* nem algo_*."""
+    return [c for c in colunas if str(c).casefold() not in ("instances", "source")
+            and not str(c).casefold().startswith(("feature_", "algo_"))]
+
+
+def erros_tipos_declarados(meta: pd.DataFrame, tipos) -> list:
+    """Problemas de uma declaracao {anotacao: tipo} (annotations.json) para o
+    metadata `meta`; lista vazia se estiver tudo certo. Usada pelo loader, pelo
+    engine (antes de rodar) e pela validacao do upload na interface."""
+    if not isinstance(tipos, dict):
+        return ["annotations.json tem de ser um objeto {anotação: tipo}"]
+    anotacoes = colunas_de_anotacao(meta.columns)
+    erros = []
+    for col, tipo in tipos.items():
+        if tipo not in TIPOS_ANOTACAO:
+            erros.append(f"{col!r}: tipo {tipo!r} não é um de {', '.join(TIPOS_ANOTACAO)}")
+        elif col not in anotacoes:
+            erros.append(f"{col!r} não é uma coluna de anotação do metadata")
+        elif e_numerica(tipo):
+            v = pd.to_numeric(meta[col], errors="coerce")
+            if (v.isna() & meta[col].notna()).any():
+                erros.append(f"{col!r} declarada {tipo} tem valores não numéricos")
+            elif tipo == INTEIRA and (np.mod(v.dropna(), 1) != 0).any():
+                erros.append(f"{col!r} declarada {tipo} tem valores não inteiros")
+    return erros
 
 
 def _no_anel(pts, anel, tol):
@@ -531,9 +560,9 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
     declarados = {}
     if (path / "annotations.json").is_file():
         declarados = json.loads((path / "annotations.json").read_text())
-        estranhas = sorted(set(declarados) - set(col_anot))
-        if estranhas:
-            raise ValueError(f"annotations.json declara colunas que nao sao anotacoes: {estranhas}")
+        erros = erros_tipos_declarados(meta.reset_index(), declarados)
+        if erros:
+            raise ValueError("annotations.json: " + "; ".join(erros))
     annotations, renames, origens = {}, {}, {}
     for col in col_anot:
         destino = col
@@ -552,6 +581,8 @@ def load_is_output(dirpath, annotation_types=None) -> IsResult:
             raise ValueError(f"tipo de anotacao invalido para {col}: {tipo!r}")
         if tipo == CATEGORICA:
             instances[destino] = _como_categoria(serie)
+        elif tipo == IDENTIFICADOR:
+            instances[destino] = serie          # como veio: so identifica a instancia
         else:
             numeros = pd.to_numeric(serie, errors="coerce")
             if (numeros.isna() & serie.notna()).any():

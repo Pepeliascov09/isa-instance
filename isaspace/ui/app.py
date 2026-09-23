@@ -1,23 +1,33 @@
 """Interface do espaco de instancias (Panel 1.x) sobre isaspace.ui.loader_is.
 
-Quatro abas sobre um estado global unico (EstadoGlobal):
+Seis abas sobre um estado global unico (EstadoGlobal):
 
 - "Instance Space" (0): um scatter z_1 x z_2 largo, com o lasso ativo ao abrir,
   colorido pela variavel global de cor; sobreposicoes opcionais de footprints
   (algoritmo e tipo), da fronteira do CLOISTER e da footprint hard.
 - "Footprint Performance" (1): mapa das footprints com a selecao destacada e a
   tabela footprint_performance.csv com o status (ok / suspeita / vazia).
-- "Distributions" (2): distribuicao de variaveis numericas agrupada por uma
+- "Algorithm Selection" (2): o que o PYTHIA e o CLOISTER produziram: mapa
+  colorido pelo recomendado (selection0, "nenhum" como categoria), pela
+  concordancia com o melhor observado ou pelo pr0_sub (P(ruim) fora da
+  amostra) de um algoritmo, com a fronteira do CLOISTER e a selecao
+  destacada; svm_table; matrizes de confusao da validacao cruzada; aviso de
+  seletor quase trivial (um algoritmo em mais de SELETOR_TRIVIAL das instancias).
+- "Distributions" (3): distribuicao de variaveis numericas agrupada por uma
   anotacao categorica (histograma, densidade ou violino); com selecao, cada
   grupo dividido em selecionadas e nao selecionadas.
-- "Features" (3): uma linha por feature recebida, com o que foi mantido e por
+- "Features" (4): uma linha por feature recebida, com o que foi mantido e por
   que o resto caiu (degenerate_report.csv + SIFTED), o heatmap das correlacoes
   feature x algoritmo e a silhueta por k.
-- "Data Explorer" (4): scatter x-y com a cor global e a selecao destacada,
+- "Data Explorer" (5): scatter x-y com a cor global e a selecao destacada,
   filtro pandas.query local e o botao "Usar filtro como selecao".
 
-Na sidebar fixa: tipos inferidos das anotacoes (trocaveis na sessao) e os
-botoes de exportacao (instancias, selecao, rotulos da footprint ativa).
+Na sidebar fixa: o seletor de dataset, com resultados/is/ e runs/ (execucoes
+disparadas pela interface) em grupos separados; o bloco "Novo instance space"
+(isaspace.ui.novo: envio de metadata.csv, validacao, regra de desempenho e
+execucao do engine em subprocesso); tipos inferidos das anotacoes (trocaveis
+na sessao) e os botoes de exportacao (instancias, selecao, rotulos da
+footprint ativa).
 
 ESTADO GLOBAL. EstadoGlobal (param.Parameterized) guarda o dataset ativo, o
 IsResult lido, a selecao e a variavel de cor; as abas leem so dele e se
@@ -33,7 +43,7 @@ do fim do gesto: os streams de geometria (Lasso, BoundsXY), que chegam uma vez
 ao soltar o mouse, agendam a gravacao em ESPERA_GEOMETRIA_MS, e cada
 Selection1D a reagenda em ESPERA_SELECAO_MS.
 
-A variavel de cor e global: os seletores das abas 0 e 3 sao duas vistas do
+A variavel de cor e global: os seletores das abas 0 e 5 sao duas vistas do
 mesmo EstadoGlobal.cor.
 
 TITULO. O titulo do template do Panel 1.9 so e aplicado na primeira
@@ -42,14 +52,15 @@ use_for_title); o nome do dataset vai num pane do cabecalho e no componente
 TituloAba, que escreve document.title no navegador.
 
 REGRA ARQUITETURAL: este modulo nao importa instancespace, pyispace, pyhard nem
-sklearn; le apenas resultados/is/<nome>/ via isaspace.ui.loader_is (formato em
-docs/output_format.md). O app anterior (Panel 0.14, pyispace) esta em
+sklearn; le apenas as pastas de saida do engine via isaspace.ui.loader_is
+(formato em docs/output_format.md). So isaspace.ui.execucao conhece o engine,
+e o roda em subprocesso. O app anterior (Panel 0.14, pyispace) esta em
 isaspace/ui/app_legacy.py.
 
 Versoes alvo: Panel 1.9.4, HoloViews 1.23.2, Bokeh 3.9.2 (.venv-isa).
 
 Uso (da raiz do projeto, com o .venv-isa):
-    python -m isaspace.ui.app [--port 5006] [--no-show] [--root resultados/is]
+    python -m isaspace.ui.app [--port 5006] [--no-show] [--root resultados/is] [--runs runs]
 """
 
 import argparse
@@ -71,9 +82,12 @@ RAIZ = Path(__file__).resolve().parents[2]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
+from isaspace.ui.execucao import PASTA_RUNS  # noqa: E402
 from isaspace.ui.loader_is import (  # noqa: E402
-    CATEGORICA, NUMERICA, SUSPEITA, VAZIA, e_numerica, list_available, load_is_output,
+    CATEGORICA, IDENTIFICADOR, NUMERICA, SUSPEITA, VAZIA, e_numerica, list_available,
+    load_is_output,
 )
+from isaspace.ui.novo import NovoInstanceSpace  # noqa: E402
 
 pn.extension("tabulator", notifications=True)
 pn.config.disconnect_notification = (
@@ -82,8 +96,11 @@ pn.config.disconnect_notification = (
 hv.extension("bokeh")
 
 TITULO = "isa-instance"
-TABS = ["Instance Space", "Footprint Performance", "Distributions", "Features", "Data Explorer"]
+TABS = ["Instance Space", "Footprint Performance", "Algorithm Selection", "Distributions",
+        "Features", "Data Explorer"]
 PASTA_IS = RAIZ / "resultados" / "is"
+# chaves do seletor de dataset: "<origem>/<pasta>"; o rotulo e so a pasta
+ORIGENS = {"is": "resultados/is", "runs": "runs (execuções pela interface)"}
 CONTROL_WIDTH = 300
 TODOS = "todos"
 MAX_DIST_VARS = 6
@@ -109,6 +126,21 @@ SEM_ROLAGEM = dict(active_tools=["pan"])
 # nomes das colunas da tabela de features na tela (o loader usa os nomes longos)
 COLUNAS_FEATURES = {"substituida_por": "ficou no lugar", "max_abs_rho": "|rho| máx",
                     "algoritmo_rho": "algoritmo", "pval": "p", "r2_pilot": "r² PILOT"}
+# aba Algorithm Selection
+SELETOR_TRIVIAL = 0.9       # um algoritmo recomendado em mais que isso das instancias
+COR_NENHUM = "#6c757d"      # sem recomendacao (selection0 = -1); cinza escuro, visivel no branco
+AS_RECOMENDADO, AS_CONCORDANCIA, AS_PR0 = "recomendado", "concordancia", "pr0_sub"
+AS_CORES = {"algoritmo recomendado (selection0)": AS_RECOMENDADO,
+            "concordância com o melhor observado": AS_CONCORDANCIA,
+            "pr0_sub de um algoritmo": AS_PR0}
+IGUAL, DIFERENTE, SEM_REC = ("igual ao melhor observado", "diferente do melhor observado",
+                             "sem recomendação")
+CORES_CONCORDANCIA = {IGUAL: "#2a9d8f", DIFERENTE: "#f4a261", SEM_REC: COR_NENHUM}
+# colunas da svm_table na tela: (nome no arquivo, nome curto)
+COLUNAS_SVM = [("CV_model_accuracy", "acurácia CV %"), ("CV_model_precision", "precisão CV %"),
+               ("CV_model_recall", "recall CV %"), ("Probability_of_good", "P(bom)"),
+               ("Avg_Perf_all_instances", "desemp. médio"),
+               ("Avg_Perf_selected_instances", "desemp. prev. boas")]
 EXPORT_DERIVADAS = ["z_1", "z_2", "NumGoodAlgos", "IsBetaEasy", "best_algo", "best_algo_svm"]
 # colunas derivadas de IsResult.instances oferecidas como cor: (rotulo, tipo)
 DERIVADAS = {
@@ -136,7 +168,8 @@ class TituloAba(JSComponent):
 class EstadoGlobal(param.Parameterized):
     """Estado unico da interface: todas as abas leem daqui."""
 
-    dataset = param.Selector(default=None, objects=[], doc="Pasta de saída do engine (resultados/is/<nome>)")
+    dataset = param.Selector(default=None, objects=[], doc="""
+        Chave '<origem>/<pasta>' da saida do engine (is/iris, runs/<nome>_<data>)""")
     resultado = param.Parameter(default=None, doc="IsResult do dataset ativo")
     selecao = param.Parameter(default=None, doc="""
         None = sem selecao; frozenset de rotulos Row, vazio = selecao vazia""")
@@ -147,7 +180,8 @@ def catalogo_de_cores(r) -> dict:
     """{coluna de r.instances: (rotulo, grupo, tipo)} das variaveis de cor."""
     cat = {}
     for col, tipo in r.annotations.items():
-        cat[col] = (col, "Anotações", tipo)
+        if tipo != IDENTIFICADOR:           # identificadores nao colorem pontos
+            cat[col] = (col, "Anotações", tipo)
     if r.source_column is not None:
         cat[r.source_column] = ("source", "Anotações", CATEGORICA)
     for f in r.features:
@@ -207,17 +241,34 @@ def poligonos_hv(fp, cor, rotulo, fill_alpha=0.25, tracejado=False):
     return hv.Polygons(geoms, label=rotulo).opts(**estilo)
 
 
+def cloister_hv(r) -> list:
+    """Fronteira do CLOISTER (e a podada, se diferente) como hv.Path."""
+    if r.bounds is None:
+        return []
+    anel = np.vstack([r.bounds.exterior, r.bounds.exterior[:1]])
+    camadas = [hv.Path([anel], label="CLOISTER").opts(
+        color="black", line_width=2, line_dash="dashed", show_legend=True)]
+    if r.bounds_pruned is not None and not np.array_equal(r.bounds.exterior, r.bounds_pruned.exterior):
+        anel = np.vstack([r.bounds_pruned.exterior, r.bounds_pruned.exterior[:1]])
+        camadas.append(hv.Path([anel], label="CLOISTER (podada)").opts(
+            color="#6c757d", line_width=1.5, line_dash="dotted", show_legend=True))
+    return camadas
+
+
+def _pct(x) -> str:
+    return f"{100 * x:.1f}%".replace(".", ",")
+
+
 class IsaApp:
     """Interface do espaco de instancias: uma instancia por sessao do navegador."""
 
-    def __init__(self, root=PASTA_IS):
+    def __init__(self, root=PASTA_IS, runs=PASTA_RUNS):
         self.root = Path(root)
-        self.datasets = list_available(self.root)
-        if not self.datasets:
-            raise FileNotFoundError(f"nenhuma pasta com run_info.json em {self.root}")
-
+        self.runs = Path(runs)
         self.estado = EstadoGlobal()
-        self.estado.param.dataset.objects = self.datasets
+        grupos = self._listar_datasets()
+        if not self.datasets:
+            raise FileNotFoundError(f"nenhuma pasta com run_info.json em {self.root} nem em {self.runs}")
         self._cache = {}
         self._dados = None           # r.instances com Row como coluna (base dos plots)
         self._catalogo = {}
@@ -235,8 +286,9 @@ class IsaApp:
         self.titulo_aba = TituloAba(titulo=TITULO, width=0, height=0, margin=0)
 
         # --- sidebar fixa
-        self.w_dataset = pn.widgets.Select.from_param(
-            self.estado.param.dataset, name="Dataset", width=CONTROL_WIDTH - 20)
+        self.w_dataset = pn.widgets.Select(name="Dataset", groups=grupos, value=self.datasets[0],
+                                           width=CONTROL_WIDTH - 20)
+        self.novo = NovoInstanceSpace(self.runs, CONTROL_WIDTH - 40, self._on_execucao_concluida)
         self.w_reload = pn.widgets.Button(name="Recarregar dataset", width=CONTROL_WIDTH - 20)
         self.info = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
         self.sel_info = pn.pane.Markdown("", width=CONTROL_WIDTH - 20)
@@ -277,6 +329,23 @@ class IsaApp:
         self.fp_tabela = pn.widgets.Tabulator(
             pd.DataFrame(), disabled=True, layout="fit_data_stretch",
             sizing_mode="stretch_width", height=280, show_index=True)
+
+        # --- aba Algorithm Selection
+        self.w_as_cor = pn.widgets.Select(name="Colorir por", options=AS_CORES,
+                                          value=AS_RECOMENDADO, width=CONTROL_WIDTH - 20)
+        self.w_as_algo = pn.widgets.Select(name="Algoritmo (pr0_sub)", width=CONTROL_WIDTH - 20,
+                                           visible=False)
+        self.w_as_cloister = pn.widgets.Checkbox(name="Fronteira do CLOISTER", value=True)
+        self.as_status = pn.pane.Markdown("")
+        self.as_aviso = pn.Column(sizing_mode="stretch_width")
+        self.as_resumo = pn.pane.Markdown("")
+        self.as_plot = pn.pane.HoloViews(sizing_mode="stretch_width", min_height=520)
+        self.as_tabela = pn.widgets.Tabulator(
+            pd.DataFrame(), disabled=True, layout="fit_data_stretch", sizing_mode="stretch_width",
+            show_index=False, pagination=None, selectable=False)
+        self.as_nota_tabela = pn.pane.Markdown("")
+        self.as_confusao = pn.FlexBox(sizing_mode="stretch_width")
+        self.as_nota_confusao = pn.pane.Markdown("")
 
         # --- aba 2
         self.w_dist_vars = pn.widgets.MultiChoice(name="Variáveis", width=CONTROL_WIDTH - 20)
@@ -320,6 +389,19 @@ class IsaApp:
                       self.w_ov_cloister, self.w_ov_hard, self.ov_nota, width=CONTROL_WIDTH),
             pn.Column("## Footprint Performance", self.w_fp_algo, "### Tipo", self.w_fp_tipo,
                       self.fp_aviso, width=CONTROL_WIDTH),
+            pn.Column("## Algorithm Selection", self.w_as_cor, self.w_as_algo, self.w_as_cloister,
+                      pn.pane.Markdown(
+                          "O que o **PYTHIA** e o **CLOISTER** produziram.\n\n"
+                          "- **Recomendado** (selection0): entre os algoritmos cujo SVM final "
+                          "prevê *bom* na instância, o de maior precisão na validação cruzada; "
+                          "*nenhum* quando nenhum SVM prevê bom.\n"
+                          "- **Melhor observado**: maior desempenho real (portfolio.csv; empates "
+                          "desfeitos ao acaso pelo PRELIM).\n"
+                          "- **Probabilidades**: pr0_sub = P(ruim) **fora da amostra** (validação "
+                          "cruzada), não a do modelo final (pr0_hat).\n"
+                          "- **CLOISTER**: fronteira estimada do espaço onde instâncias plausíveis "
+                          "podem existir.", width=CONTROL_WIDTH - 20),
+                      width=CONTROL_WIDTH),
             pn.Column("## Distributions", self.w_dist_vars,
                       pn.pane.Markdown(f"_Até {MAX_DIST_VARS} variáveis por vez._"),
                       self.w_dist_grupo, "### Tipo", self.w_dist_tipo,
@@ -339,7 +421,7 @@ class IsaApp:
                       self.w_ex_query, self.ex_filtro, self.w_ex_usar, width=CONTROL_WIDTH),
         ]
         self.sidebar = pn.Column(
-            self.w_dataset, self.w_reload, self.info, self.tipos_card, self.sel_info,
+            self.w_dataset, self.w_reload, self.novo.card, self.info, self.tipos_card, self.sel_info,
             self.w_limpar, pn.pane.Markdown("### Exportar", margin=(0, 10)), self.w_exp_todas,
             self.w_exp_sel, self.w_exp_fp, self.exp_nota,
             pn.layout.Divider(), self.controls[0], width=CONTROL_WIDTH,
@@ -350,18 +432,26 @@ class IsaApp:
             (TABS[1], pn.Column(self.fp_status, self.fp_plot,
                                 pn.pane.Markdown("### footprint_performance.csv"), self.fp_tabela,
                                 sizing_mode="stretch_width")),
-            (TABS[2], pn.Column(self.dist_status, self.dist_plots, sizing_mode="stretch_width")),
-            (TABS[3], pn.Column(self.feat_resumo, self.feat_tabela,
+            (TABS[2], pn.Column(self.as_status, self.as_aviso, self.as_resumo, self.as_plot,
+                                pn.pane.Markdown("### Desempenho dos SVMs (svm_table.csv)"),
+                                self.as_tabela, self.as_nota_tabela,
+                                pn.pane.Markdown("### Matrizes de confusão da validação cruzada "
+                                                 "(positivo = bom)"),
+                                self.as_nota_confusao, self.as_confusao,
+                                sizing_mode="stretch_width")),
+            (TABS[3], pn.Column(self.dist_status, self.dist_plots, sizing_mode="stretch_width")),
+            (TABS[4], pn.Column(self.feat_resumo, self.feat_tabela,
                                 pn.pane.Markdown("### Correlações do SIFTED (feature × algoritmo)"),
                                 self.feat_heatmap, pn.pane.Markdown("### Silhueta por k (SIFTED)"),
                                 self.feat_silhueta, sizing_mode="stretch_width")),
-            (TABS[4], pn.Column(self.ex_status, self.ex_plot, self.ex_titulo_tabela,
+            (TABS[5], pn.Column(self.ex_status, self.ex_plot, self.ex_titulo_tabela,
                                 self.ex_tabela, sizing_mode="stretch_width")),
             dynamic=True, sizing_mode="stretch_width",
         )
 
         # --- ligacoes
         self.estado.param.watch(self._on_dataset, "dataset")
+        self.w_dataset.param.watch(self._on_widget_dataset, "value")
         self.estado.param.watch(self._on_estado, ["resultado", "selecao", "cor"])
         self.tabs.param.watch(self._on_tab, "active")
         self.w_reload.on_click(self._on_reload)
@@ -375,6 +465,8 @@ class IsaApp:
         for w in (self.w_dist_vars, self.w_dist_tipo):
             w.param.watch(lambda _: None if self._building else self._refresh_distribuicoes(), "value")
         self.w_dist_grupo.param.watch(self._on_dist_grupo, "value")
+        for w in (self.w_as_cor, self.w_as_algo, self.w_as_cloister):
+            w.param.watch(lambda _: None if self._building else self._refresh_selecao_algo(), "value")
         for w in (self.w_ex_x, self.w_ex_y, self.w_ex_query):
             w.param.watch(lambda _: self._refresh_explorer(), "value")
         self.w_ex_usar.on_click(self._on_usar_filtro)
@@ -382,23 +474,65 @@ class IsaApp:
         self.estado.dataset = self.datasets[0]
 
     # ------------------------------------------------------------------ dados
-    def _carregar(self, nome, forcar=False):
-        forcados = self._tipos_forcados.get(nome, {})
-        chave = (nome, tuple(sorted(forcados.items())))
+    def _listar_datasets(self):
+        """Relista resultados/is e runs; devolve os grupos do seletor
+        {origem: {pasta: chave}} (runs: mais recente primeiro)."""
+        grupos = {}
+        for origem, pasta in (("is", self.root), ("runs", self.runs)):
+            nomes = list_available(pasta) if pasta.is_dir() else []
+            if origem == "runs":
+                nomes.sort(key=lambda n: (pasta / n / "run_info.json").stat().st_mtime, reverse=True)
+            if nomes:
+                grupos[ORIGENS[origem]] = {n: f"{origem}/{n}" for n in nomes}
+        self.datasets = [c for g in grupos.values() for c in g.values()]
+        self.estado.param.dataset.objects = self.datasets
+        return grupos
+
+    def _pasta(self, chave):
+        origem, _, nome = chave.partition("/")
+        return (self.runs if origem == "runs" else self.root) / nome
+
+    @staticmethod
+    def _nome(chave):
+        return chave.partition("/")[2]
+
+    def _carregar(self, chave, forcar=False):
+        forcados = self._tipos_forcados.get(chave, {})
+        k = (chave, tuple(sorted(forcados.items())))
         if forcar:
-            self._cache = {k: v for k, v in self._cache.items() if k[0] != nome}
-        if chave not in self._cache:
-            self._cache[chave] = load_is_output(self.root / nome, annotation_types=forcados or None)
-        return self._cache[chave]
+            self._cache = {c: v for c, v in self._cache.items() if c[0] != chave}
+        if k not in self._cache:
+            self._cache[k] = load_is_output(self._pasta(chave), annotation_types=forcados or None)
+        return self._cache[k]
 
     def _on_dataset(self, event):
         self._trocar_dataset(event.new)
 
-    def _on_reload(self, _):
-        self._trocar_dataset(self.estado.dataset, forcar=True)
+    def _on_widget_dataset(self, event):
+        if event.new in self.datasets and event.new != self.estado.dataset:
+            self.estado.dataset = event.new
 
-    def _trocar_dataset(self, nome, forcar=False, manter_selecao=False):
-        r = self._carregar(nome, forcar)
+    def _on_reload(self, _):
+        self.w_dataset.groups = self._listar_datasets()
+        if self.estado.dataset not in self.datasets:
+            self.estado.dataset = self.datasets[0]
+        else:
+            self._trocar_dataset(self.estado.dataset, forcar=True)
+
+    def _on_execucao_concluida(self, pasta):
+        """Execucao do bloco Novo instance space terminou: relista e abre."""
+        self.w_dataset.groups = self._listar_datasets()
+        chave = f"runs/{Path(pasta).name}"
+        if chave in self.datasets:
+            self.estado.dataset = chave
+            if pn.state.notifications is not None:
+                pn.state.notifications.success(f"Novo instance space: {Path(pasta).name}", duration=6000)
+
+    def _trocar_dataset(self, chave, forcar=False, manter_selecao=False):
+        nome = self._nome(chave)
+        if self.w_dataset.value != chave:
+            self.w_dataset.value = chave
+        r = self._carregar(chave, forcar)
         self._dados = r.instances.reset_index()
         self._catalogo = catalogo_de_cores(r)
         cor = self.estado.cor if self.estado.cor in self._catalogo else cor_padrao(r, self._catalogo)
@@ -422,20 +556,22 @@ class IsaApp:
             "_Sem declaração em annotations.json: tipo adivinhado. A troca vale só "
             "nesta sessão._", width=CONTROL_WIDTH - 50)]
         for col in cols:
+            atual = r.annotations[col]
             w = pn.widgets.RadioButtonGroup(
-                name=col, options={"numérica": NUMERICA, "categórica": CATEGORICA},
-                value=CATEGORICA if r.annotations[col] == CATEGORICA else NUMERICA,
+                name=col, options={"numérica": NUMERICA, "categórica": CATEGORICA,
+                                   "identificador": IDENTIFICADOR},
+                value=atual if atual in (CATEGORICA, IDENTIFICADOR) else NUMERICA,
                 button_type="light")
             w.param.watch(partial(self._on_tipo, meta.get(col, col)), "value")
-            linhas.append(pn.Row(pn.pane.Markdown(f"`{col}`", width=110), w))
+            linhas.append(pn.Column(pn.pane.Markdown(f"`{col}`", margin=(0, 10)), w))
         self.tipos_card.objects = linhas
         self.tipos_card.title = f"Tipos inferidos ({len(cols)})"
         self.tipos_card.visible = bool(cols)
 
     def _on_tipo(self, coluna, event):
-        nome = self.estado.dataset
-        self._tipos_forcados.setdefault(nome, {})[coluna] = event.new
-        self._trocar_dataset(nome, manter_selecao=True)
+        chave = self.estado.dataset
+        self._tipos_forcados.setdefault(chave, {})[coluna] = event.new
+        self._trocar_dataset(chave, manter_selecao=True)
 
     def _set_options(self, r):
         """Opcoes de todos os seletores para o dataset, sem disparar redesenhos."""
@@ -449,6 +585,9 @@ class IsaApp:
                 w.options = algos
                 if w.value not in algos:
                     w.value = TODOS
+            self.w_as_algo.options = list(r.algos)
+            if self.w_as_algo.value not in r.algos:
+                self.w_as_algo.value = r.algos[0]
             numericas = self._numericas(r)
             dist = [c for c in numericas if c not in ("z_1", "z_2")]
             self.w_dist_vars.options = dist
@@ -635,6 +774,7 @@ class IsaApp:
             self.espaco_status.object = self._status_espaco()
         if nomes & {"resultado", "selecao"}:
             self._refresh_footprints()
+            self._refresh_selecao_algo()
             self._refresh_distribuicoes()
         if "resultado" in nomes:
             self._refresh_features()
@@ -647,12 +787,15 @@ class IsaApp:
     def _refresh_info(self):
         r = self.estado.resultado
         rob = r.run_info.get("trace_robustez", {})
+        origem = self.estado.dataset.partition("/")[0]
         linhas = [
-            f"**{r.name}**",
+            f"**{r.name}** _({'runs' if origem == 'runs' else 'resultados/is'})_",
             f"Instâncias: **{r.n}**",
             f"Features no PILOT: **{r.n_features_used}** de {len(r.features_all)}",
             f"Algoritmos: **{len(r.algos)}**",
         ]
+        if r.run_info.get("regra_bom"):
+            linhas.append(f"Regra: `{r.run_info['regra_bom']}`")
         if rob.get("jitter_aplicado"):
             linhas.append(f"_TRACE com jitter em {rob['pontos_perturbados']} instâncias "
                           "(coordinates_trace.csv)_")
@@ -697,15 +840,8 @@ class IsaApp:
                 if fp.status == SUSPEITA:
                     notas.append(f"- **{a} / {tipo}**: suspeita (pureza {fp.pureza:.2f}), tracejada")
                 camadas.append(poligonos_hv(fp, cor, f"{a} {tipo}", 0.22, fp.status == SUSPEITA))
-        if self.w_ov_cloister.value and r.bounds is not None:
-            anel = np.vstack([r.bounds.exterior, r.bounds.exterior[:1]])
-            camadas.append(hv.Path([anel], label="CLOISTER").opts(
-                color="black", line_width=2, line_dash="dashed", show_legend=True))
-            if r.bounds_pruned is not None and not np.array_equal(r.bounds.exterior,
-                                                                   r.bounds_pruned.exterior):
-                anel = np.vstack([r.bounds_pruned.exterior, r.bounds_pruned.exterior[:1]])
-                camadas.append(hv.Path([anel], label="CLOISTER (podada)").opts(
-                    color="#6c757d", line_width=1.5, line_dash="dotted", show_legend=True))
+        if self.w_ov_cloister.value:
+            camadas += cloister_hv(r)
         self.ov_nota.object = "\n".join(notas)
         return camadas
 
@@ -779,7 +915,195 @@ class IsaApp:
             "com": "Destacadas no mapa; as demais aparecem apagadas.",
         })
 
-    # --------------------------------------------- aba 2: distribuicoes
+    # ------------------------------------- aba 2: algorithm selection
+    def _dados_selecao_algo(self):
+        """Uma linha por instancia: recomendado (selection0, 'nenhum'), melhor
+        observado, concordancia, pr0_sub do recomendado e se ele e bom."""
+        r = self.estado.resultado
+        rows = self._dados["Row"]
+        rec = r.pythia_selection["selection0"].reindex(rows.to_numpy()).to_numpy(dtype=object)
+        melhor = self._dados["best_algo"].to_numpy(dtype=object)
+        tem = np.array([v is not None and not (isinstance(v, float) and np.isnan(v)) for v in rec])
+        rec_txt = np.where(tem, rec, NENHUM).astype(str)
+        concorda = np.where(~tem, SEM_REC, np.where(rec == melhor, IGUAL, DIFERENTE))
+        pr0 = r.pythia_proba.reindex(rows.to_numpy())
+        pr0_rec = np.full(len(rows), np.nan)
+        rec_bom = np.zeros(len(rows), dtype=bool)
+        for i, a in enumerate(r.algos):
+            m = rec_txt == a
+            pr0_rec[m] = pr0[a].to_numpy(dtype=float)[m]
+            rec_bom[m] = self._dados[f"algo_{a}_bin"].to_numpy(dtype=bool)[m]
+        return pd.DataFrame({
+            "Row": rows.to_numpy(), "z_1": self._dados["z_1"].to_numpy(),
+            "z_2": self._dados["z_2"].to_numpy(), "recomendado": rec_txt,
+            "melhor": pd.Series(melhor).fillna(NENHUM).astype(str).to_numpy(),
+            "concordancia": concorda, "pr0_rec": pr0_rec,
+            "rec_bom": np.where(tem, np.where(rec_bom, "sim", "não"), "—"),
+        })
+
+    def _refresh_selecao_algo(self):
+        r = self.estado.resultado
+        if r is None or self._dados is None:
+            return
+        d = self._dados_selecao_algo()
+        n = len(d)
+        d["opacidade"] = self._alphas()
+        modo = self.w_as_cor.value
+        self.w_as_algo.visible = modo == AS_PR0
+        contagem = d["recomendado"].value_counts()
+
+        # aviso de seletor quase trivial (so algoritmos, nao 'nenhum')
+        algos_rec = contagem.drop(NENHUM, errors="ignore")
+        avisos = []
+        if len(algos_rec) and algos_rec.iloc[0] / n > SELETOR_TRIVIAL:
+            a, k = algos_rec.index[0], int(algos_rec.iloc[0])
+            avisos.append(pn.pane.Alert(
+                f"⚠ **Seletor quase trivial:** o PYTHIA recomenda **{a}** para {k} de {n} "
+                f"instâncias ({_pct(k / n)}, acima de {_pct(SELETOR_TRIVIAL)}). Recomendar "
+                f"sempre {a} daria quase o mesmo resultado: o mapa diz pouco sobre regiões "
+                "em que cada algoritmo é melhor.", alert_type="warning",
+                css_classes=["as-trivial"], sizing_mode="stretch_width"))
+        self.as_aviso.objects = avisos
+
+        # resumo da concordancia
+        c = d["concordancia"].value_counts()
+        dif = d["concordancia"] == DIFERENTE
+        dif_bom = int((dif & (d["rec_bom"] == "sim")).sum())
+        self.as_resumo.object = (
+            f"Recomendado = melhor observado em **{int(c.get(IGUAL, 0))}** de {n} instâncias; "
+            f"diferente em **{int(c.get(DIFERENTE, 0))}** (em {dif_bom} delas o recomendado "
+            f"também é bom); sem recomendação em **{int(c.get(SEM_REC, 0))}**.  \n"
+            "_Probabilidades nesta aba: **pr0_sub**, P(ruim) fora da amostra (validação cruzada "
+            "do PYTHIA)._")
+
+        # mapa
+        cores_algo = {a: PALETA_ALGOS[i % len(PALETA_ALGOS)] for i, a in enumerate(r.algos)}
+        hover = HoverTool(tooltips=[
+            ("Row", "@Row"), ("recomendado", "@recomendado"), ("melhor observado", "@melhor"),
+            ("recomendado é bom", "@rec_bom"), ("pr0_sub do recomendado", "@pr0_rec{0.000}")])
+        vdims = ["Row", "recomendado", "melhor", "rec_bom", "pr0_rec", "opacidade"]
+        estilo = dict(alpha="opacidade", size=6, line_color=None, tools=[hover],
+                      responsive=True, min_height=520, show_grid=True)
+        if modo == AS_PR0:
+            a = self.w_as_algo.value
+            d["cor_valor"] = r.pythia_proba[a].reindex(d["Row"].to_numpy()).to_numpy(dtype=float)
+            rotulo = f"pr0_sub {a}: P(ruim) fora da amostra"
+            estilo.update(color="cor_valor", cmap="RdYlGn_r", clim=(0, 1), colorbar=True,
+                          show_legend=False, colorbar_opts={"title": "pr0_sub"})
+            hover.tooltips = hover.tooltips + [(f"pr0_sub {a}", "@cor_valor{0.000}")]
+            titulo = f"pr0_sub de {a} (P(ruim) fora da amostra); verde = provável bom"
+        else:
+            if modo == AS_CONCORDANCIA:
+                col, cores = "concordancia", CORES_CONCORDANCIA
+                titulo = "Recomendado (selection0) × melhor observado"
+            else:
+                col, cores = "recomendado", {**cores_algo, NENHUM: COR_NENHUM}
+                titulo = "Algoritmo recomendado pelo PYTHIA (selection0)"
+            # legenda e ordem de desenho: da categoria mais frequente para a
+            # mais rara (as raras ficam por cima e continuam visiveis)
+            cont = d[col].value_counts()
+            ordem = list(cont.index)
+            rot = {k: f"{k} ({int(cont[k])})" for k in ordem}
+            d["cor_valor"] = d[col].map(rot)
+            d = d.iloc[np.argsort(d[col].map({k: i for i, k in enumerate(ordem)}).to_numpy(),
+                                  kind="stable")]
+            cmap = {rot[k]: cores.get(k, COR_NENHUM) for k in ordem}
+            rotulo = "cor"
+            estilo.update(color="cor_valor", cmap=cmap, show_legend=True)
+        pontos = hv.Points(d, ["z_1", "z_2"], [hv.Dimension("cor_valor", label=rotulo), *vdims]
+                           ).opts(**estilo)
+        camadas = [pontos]
+        if self.w_as_cloister.value:
+            camadas += cloister_hv(r)
+        self.as_plot.object = reduce(lambda a, b: a * b, camadas).opts(
+            responsive=True, min_height=520, legend_position="right", title=titulo,
+            legend_opts={"click_policy": "hide"}, **SEM_ROLAGEM)
+        self.as_status.object = self._texto_selecao({
+            "sem": "Use o lasso na aba Instance Space para destacar um subconjunto no mapa.",
+            "vazia": "Nenhum ponto destacado no mapa.",
+            "com": "Destacadas no mapa; as demais aparecem apagadas. " + self._resumo_sel_algo(d),
+        })
+        self._refresh_svm_table(r, contagem)
+        self._refresh_confusao(r)
+
+    def _resumo_sel_algo(self, d):
+        m = self._mascara()
+        if m is None or not m.any():
+            return ""
+        c = d.loc[m, "concordancia"].value_counts()
+        top = d.loc[m, "recomendado"].value_counts()
+        return (f"Na seleção: mais recomendado **{top.index[0]}** ({int(top.iloc[0])}); igual ao "
+                f"melhor observado {int(c.get(IGUAL, 0))}, diferente {int(c.get(DIFERENTE, 0))}, "
+                f"sem recomendação {int(c.get(SEM_REC, 0))}.")
+
+    def _refresh_svm_table(self, r, contagem):
+        tab = r.svm_table
+        linhas = []
+        for nome in tab.index:
+            linha = {"algoritmo": str(nome)}
+            for col, curto in COLUNAS_SVM:
+                v = tab.loc[nome, col] if col in tab.columns else np.nan
+                linha[curto] = "—" if pd.isna(v) else (f"{v:.1f}" if curto.endswith("%") else f"{v:.3f}")
+            if nome in r.algos:
+                linha["recomendado em"] = int(contagem.get(nome, 0))
+            elif nome == "Selector":
+                linha["recomendado em"] = int(contagem.drop(NENHUM, errors="ignore").sum())
+            else:
+                linha["recomendado em"] = "—"
+            linhas.append(linha)
+        df = pd.DataFrame(linhas)
+        ordem = ["algoritmo", "acurácia CV %", "precisão CV %", "recall CV %",
+                 "recomendado em", "P(bom)", "desemp. médio", "desemp. prev. boas"]
+        self.as_tabela.value = df[ordem].astype(str)
+        self.as_tabela.height = 40 + 31 * len(df)
+        self.as_nota_tabela.object = (
+            "- **acurácia, precisão e recall**: validação cruzada de cada SVM (positivo = bom).\n"
+            "- **recomendado em**: instâncias em que o algoritmo é o selection0.\n"
+            "- **P(bom)**: fração de instâncias em que o algoritmo é bom (Selector: com "
+            "selection1, que troca *nenhum* pelo algoritmo de maior P(bom)).\n"
+            "- **desemp. prev. boas**: média de `algo_*` onde o SVM prevê bom (Selector: a do "
+            "recomendado).\n"
+            "- **Oracle**: sempre o melhor observado de cada instância.\n"
+            "- **Selector**: o recomendado. Precisão = fração das instâncias recomendadas em "
+            "que o recomendado é bom. O recall segue a definição do PYTHIA/MATLAB, que conta "
+            "como perda toda instância com algum algoritmo bom não recomendado; por isso fica "
+            "perto de 50% quando há vários algoritmos bons por instância.")
+
+    def _refresh_confusao(self, r):
+        conf = r.pythia_confusion
+        paineis = []
+        for a in r.algos:
+            if a not in conf.index:
+                continue
+            tn, fp, fn, tp = (int(conf.loc[a, k]) for k in ("tn", "fp", "fn", "tp"))
+            celulas = []
+            for obs, prev, k, nome in (("bom", "bom", tp, "VP"), ("bom", "ruim", fn, "FN"),
+                                       ("ruim", "bom", fp, "FP"), ("ruim", "ruim", tn, "VN")):
+                total = tp + fn if obs == "bom" else fp + tn
+                frac = k / total if total else 0.0
+                celulas.append({"previsto": prev, "observado": obs, "fracao": frac, "n": k,
+                                "texto": f"{nome} {k}\n{_pct(frac)}" if total else f"{nome} 0",
+                                "cor_texto": "white" if frac >= 0.6 else "black"})
+            c = pd.DataFrame(celulas)
+            acc = (tp + tn) / max(tp + tn + fp + fn, 1)
+            mapa = hv.HeatMap(c, ["previsto", "observado"], ["fracao", "n"]).opts(
+                cmap="Blues", clim=(0, 1), colorbar=False, tools=["hover"], width=230,
+                height=190, xlabel="previsto (CV)", ylabel="observado", toolbar=None,
+                invert_yaxis=True, default_tools=[])
+            rotulos = hv.Labels(c, ["previsto", "observado"], ["texto", "cor_texto"]).opts(
+                text_font_size="11pt", text_color="cor_texto")
+            paineis.append(pn.Column(
+                pn.pane.Markdown(f"**{a}** · acurácia {_pct(acc)}", width=230, margin=(0, 10)),
+                pn.pane.HoloViews(mapa * rotulos, width=230, height=190),
+                css_classes=["as-confusao"], margin=(5, 5)))
+        self.as_confusao.objects = paineis or [pn.pane.Markdown("Sem matrizes de confusão.")]
+        self.as_nota_confusao.object = (
+            "Linhas = desempenho observado, colunas = previsão do SVM na validação cruzada. "
+            "Cor e porcentagem: fração dentro da linha (a diagonal escura indica acerto nas duas "
+            "classes). VP/FN/FP/VN: verdadeiro positivo, falso negativo, falso positivo, "
+            "verdadeiro negativo.")
+
+    # --------------------------------------------- aba 3: distribuicoes
     def _series_dist(self, vals, grupo_col, mascara):
         """[(rotulo, valores finitos, cor, parte)] por grupo; parte e True
         (selecionadas), False (nao selecionadas) ou None (sem divisao)."""
@@ -888,7 +1212,7 @@ class IsaApp:
             for v in variaveis
         ]
 
-    # ---------------------------------------------------- aba 3: features
+    # ---------------------------------------------------- aba 4: features
     def _refresh_features(self):
         r = self.estado.resultado
         tabela = r.features_table()
@@ -991,7 +1315,7 @@ class IsaApp:
         return self._csv(pd.DataFrame({"instances": rotulos}))
 
     def _refresh_exportacao(self):
-        nome, sel = self.estado.dataset, self.estado.selecao
+        nome, sel = self._nome(self.estado.dataset), self.estado.selecao
         self.w_exp_todas.filename = f"{nome}_instancias.csv"
         self.w_exp_sel.filename = f"{nome}_selecao.csv"
         self.w_exp_sel.disabled = sel is None
@@ -1006,7 +1330,7 @@ class IsaApp:
             "_Footprint ativa: a da aba Footprint Performance; escolha um algoritmo lá._"
             if fp is None else (f"_Footprint {algo}/{tipo} vazia._" if fp.status == VAZIA else ""))
 
-    # --------------------------------------------- aba 4: data explorer
+    # --------------------------------------------- aba 5: data explorer
     def _refresh_explorer(self):
         if self._dados is None:
             return
@@ -1049,7 +1373,8 @@ class IsaApp:
             plot, [hv.Dimension("eixo_x", label=x), hv.Dimension("eixo_y", label=y)],
             [hv.Dimension("cor_valor", label=rotulo), "Row", "opacidade"]).opts(**estilo)
 
-        cols = list(dict.fromkeys(["Row", x, y, col, "best_algo", "best_algo_svm"]))
+        ids = [c for c, t in self.estado.resultado.annotations.items() if t == IDENTIFICADOR]
+        cols = list(dict.fromkeys(["Row", *ids, x, y, col, "best_algo", "best_algo_svm"]))
         tabela = filtrado[cols].copy()
         tabela.insert(1, "selecionada", False if mascara is None else mascara[linhas])
         self.ex_tabela.value = tabela.round(4)
@@ -1070,15 +1395,15 @@ class IsaApp:
         )
 
 
-def make_app(root=PASTA_IS):
+def make_app(root=PASTA_IS, runs=PASTA_RUNS):
     """Fabrica usada por pn.serve: uma instancia por sessao do navegador."""
-    return IsaApp(root).render()
+    return IsaApp(root, runs).render()
 
 
-def start(port=5006, show=True, threaded=False, root=PASTA_IS):
+def start(port=5006, show=True, threaded=False, root=PASTA_IS, runs=PASTA_RUNS):
     """Sobe o servidor. Com threaded=True devolve a thread do servidor."""
     return pn.serve(
-        lambda: make_app(root), port=port, show=show, title=TITULO,
+        lambda: make_app(root, runs), port=port, show=show, title=TITULO,
         websocket_origin=[f"localhost:{port}", f"127.0.0.1:{port}"], threaded=threaded,
     )
 
@@ -1088,8 +1413,10 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=5006)
     parser.add_argument("--no-show", action="store_true", help="nao abre o navegador")
     parser.add_argument("--root", default=str(PASTA_IS), help="pasta resultados/is")
+    parser.add_argument("--runs", default=str(PASTA_RUNS),
+                        help="pasta das execucoes disparadas pela interface")
     args = parser.parse_args(argv)
-    start(port=args.port, show=not args.no_show, root=Path(args.root))
+    start(port=args.port, show=not args.no_show, root=Path(args.root), runs=Path(args.runs))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
   "gerado_por": "isaspace.engine.run_instancespace",
-  "gerado_em": "2026-09-22T20:18:08",
+  "gerado_em": "2026-09-22T20:40:32",
   "instancespace_version": "0.3.0",
   "python": "3.12.14",
   "metadata_entrada": "/Users/natanpepeliascov/isa-instance/resultados/isa/iris/metadata.csv",
@@ -20,6 +20,7 @@
   "tipos_anotacao": {
     "arquivo": "annotations.json",
     "declarados": {
+      "row_original": "identifier",
       "class": "categorica",
       "ih": "numerica",
       "n_wrong": "numerica_inteira"
@@ -32,15 +33,15 @@
   ],
   "tempos_s": {
     "PREPROCESSING": 0.0,
-    "PRELIM": 0.193,
-    "SIFTED": 1.11,
-    "PILOT": 0.416,
-    "deteccao_duplicatas": 0.001,
-    "PYTHIA": 0.538,
+    "PRELIM": 0.194,
+    "SIFTED": 1.144,
+    "PILOT": 0.42,
+    "deteccao_duplicatas": 0.005,
+    "PYTHIA": 0.557,
     "CLOISTER": 0.004,
-    "TRACE": 0.24,
-    "build_total": 2.513,
-    "escrita": 0.018
+    "TRACE": 0.245,
+    "build_total": 2.58,
+    "escrita": 0.015
   },
   "trace_robustez": {
     "limiar": 1e-06,

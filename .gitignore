@@ -7,6 +7,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# execucoes disparadas pela interface (Novo instance space)
+runs/
+
 # pasta descartavel de comparacao com o PyHard
 comparacao_pyhard/
 

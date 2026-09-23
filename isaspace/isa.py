@@ -42,7 +42,10 @@ ANOTACOES = ("class", "ih", "n_wrong")
 ROTULO = "class"
 # tipo declarado de cada anotacao (annotations.json): o CSV nao guarda tipo e
 # "1"/"2" voltaria como numero
-TIPOS_ANOTACAO = {"class": "categorica", "ih": "numerica", "n_wrong": "numerica_inteira"}
+TIPOS_ANOTACAO = {
+    "row_original": "identifier",       # indice da linha no dataset do OpenML
+    "class": "categorica", "ih": "numerica", "n_wrong": "numerica_inteira",
+}
 # familia das medidas do pyhard (feature_info.csv): as que dependem de um
 # modelo ajustado sao model_derived; as demais, geometric
 MODEL_DERIVED = ("CL", "CLD", "DS", "DCP", "TD_U", "TD_P")
@@ -250,7 +253,8 @@ def to_isa_metadata(
         "annotations": annotations,
         "row_original": row_original,
         "acerto_real": acerto_real,
-        "annotation_types": {c: TIPOS_ANOTACAO[c] for c in annotations if c in TIPOS_ANOTACAO},
+        "annotation_types": {c: TIPOS_ANOTACAO[c] for c in [ROW_ORIGINAL, *annotations]
+                             if c in TIPOS_ANOTACAO},
         "degenerate_report": pd.DataFrame(
             [{"feature": d["feature"][len(_FEATURE):], "var_bruta": d["var_bruta"],
               "iqr": d["iqr"], "motivo": d["motivo"]} for d in dropped],
@@ -273,7 +277,8 @@ def to_isa_metadata(
 def write_metadata(metadata, info, outdir):
     """Grava metadata.csv e, ao lado, os arquivos que o engine copia se existirem.
 
-    - annotations.json: {anotacao: "categorica" | "numerica" | "numerica_inteira"};
+    - annotations.json: {anotacao: "categorica" | "numerica" | "numerica_inteira" |
+      "identifier"};
     - degenerate_report.csv: medidas descartadas antes do engine (feature,
       var_bruta, iqr, motivo); so o cabecalho quando nenhuma caiu;
     - feature_info.csv: feature, family de todas as medidas recebidas.
