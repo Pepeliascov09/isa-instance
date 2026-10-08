@@ -58,6 +58,17 @@ the R^2 of the number of bad algorithms regressed on (z_1, z_2) as the
 strength of the difficulty gradient. ``orient=False`` (CLI ``--no-orient``)
 keeps PILOT's orientation.
 
+Upstream compatibility: ``upstream_compat=True`` (CLI ``--upstream-compat``)
+turns off everything the engine adds to or changes in instancespace's own
+output, so that every file ``Model.save_to_csv`` writes comes out identical to
+a plain ``InstanceSpace(metadata, options).build()`` + ``save_to_csv`` on the
+same metadata and options (scripts/run_upstream_reference.py, checked by
+tests/test_upstream_compat.py): the options are the library defaults
+overridden only by ``options`` (no DEFAULT_OPTIONS), no TRACE jitter (the
+near-duplicate pairs are still counted), no orientation, and coordinates.csv
+is the one save_to_csv wrote. The extra files are still written, from the
+same Model, and ``run_info.json["upstream_compat"]`` records the mode.
+
 Command line (used by the UI, isaspace.ui.runner, to run the engine in a
 subprocess): see ``main``.
 
@@ -191,16 +202,20 @@ def _key(name):
     return str(name).casefold().replace("_", "")
 
 
-def build_options(options=None):
+def build_options(options=None, upstream_compat=False):
     """InstanceSpaceOptions from DEFAULT_OPTIONS overridden by `options`.
 
     `options` is a dict per group ({"trace": {"use_sim": True}}), with the
     names of run_options.json or those of the MATLAB options.json (MaxPerf,
     usesim, PI); a user key replaces the equivalent default key. A ready
-    InstanceSpaceOptions is returned unchanged.
+    InstanceSpaceOptions is returned unchanged. With `upstream_compat`, the
+    base is the library's defaults instead of DEFAULT_OPTIONS (`options` read
+    exactly as instancespace's from_json_file reads it).
     """
     if isinstance(options, InstanceSpaceOptions):
         return options
+    if upstream_compat:
+        return InstanceSpaceOptions.from_dict(copy.deepcopy(options or {}))
     merged = copy.deepcopy(DEFAULT_OPTIONS)
     for group, values in (options or {}).items():
         base = merged.get(group)
@@ -760,7 +775,7 @@ def _footprint_files(outdir, algo_labels):
 # API
 # --------------------------------------------------------------------------- #
 def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
-                      fix_near_duplicates=True, orient=True):
+                      fix_near_duplicates=True, orient=True, upstream_compat=False):
     """Run instancespace on `metadata_path` and write the folder `outdir`.
 
     Parameters
@@ -780,6 +795,9 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
         projection and do not apply the jitter (for comparison).
     orient : standard orientation (see "Orientation" in the module docstring),
         applied after the whole pipeline; False keeps PILOT's orientation.
+    upstream_compat : the files of save_to_csv identical to plain instancespace
+        (see "Upstream compatibility" in the module docstring); overrides
+        `fix_near_duplicates` and `orient` (both off).
 
     Returns the dict written to run_info.json. A failing stage becomes a
     RuntimeError naming the stage; the output folder is only touched after
@@ -789,7 +807,9 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
     outdir = Path(outdir)
     t_start = time.perf_counter()
     _check_folder(outdir, metadata_path)
-    opts = build_options(options)
+    opts = build_options(options, upstream_compat)
+    if upstream_compat:
+        fix_near_duplicates = orient = False
     meta = _read_metadata(metadata_path)
     auxiliary, declared_types = _read_auxiliary(metadata_path)
     feats_input = [str(f) for f in meta.feature_names]
@@ -827,6 +847,8 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
                     z_pilot = np.array(out.z, dtype=float)
                     t0 = time.perf_counter()
                     z_fixed, robustness = _fix_near_duplicates(out.z, labels_z, fix_near_duplicates)
+                    if upstream_compat and "reason_no_jitter" in robustness:
+                        robustness["reason_no_jitter"] = "upstream_compat"
                     timings["near_duplicate_check"] = round(time.perf_counter() - t0, 3)
             model = isp.model
     finally:
@@ -841,7 +863,8 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
     model.save_to_csv(outdir)
     algos = [str(a) for a in model.data.algo_labels]
     labels = [str(x) for x in model.data.inst_labels]
-    _write_coordinates(outdir, labels, z_pilot, z_fixed)
+    if not upstream_compat:
+        _write_coordinates(outdir, labels, z_pilot, z_fixed)
     shutil.copyfile(metadata_path, outdir / "metadata.csv")
     for name, source in auxiliary.items():
         shutil.copyfile(source, outdir / name)
@@ -871,7 +894,8 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
     else:
         orient_info.update({"applied": False, "rotated_files": []})
         if not orient:
-            orient_info["reason_not_applied"] = "disabled (orient=False)"
+            orient_info["reason_not_applied"] = ("disabled (upstream_compat)" if upstream_compat
+                                                 else "disabled (orient=False)")
     timings["writing"] = round(time.perf_counter() - t0, 3)
 
     counts = Counter((w.category.__name__, str(w.message)) for w in caught)
@@ -899,6 +923,13 @@ def run_instancespace(metadata_path, outdir, options=None, progress=None, *,
         "pythia": pythia_info,
         "good_rule": _good_rule(opts.perf),
         "orientation": orient_info,
+        "upstream_compat": {
+            "enabled": bool(upstream_compat),
+            "identical_to": ("InstanceSpace(metadata, options).build() + Model.save_to_csv "
+                             "of instancespace, for every file save_to_csv writes"
+                             if upstream_compat else None),
+            "options_base": "instancespace defaults" if upstream_compat else "DEFAULT_OPTIONS",
+        },
         "files": sorted({p.name for p in _engine_files(outdir)} | {"run_info.json"}),
         "warnings": warns,
         "instancespace_warnings": list(dict.fromkeys(is_warnings)),
@@ -919,13 +950,19 @@ def main(argv=None):
     (exit code 1); everything else is log.
 
     python -m isaspace.engine --metadata M.csv --outdir FOLDER [--options JSON] [--no-orient]
+                              [--upstream-compat]
     """
     parser = argparse.ArgumentParser(description="Run instancespace on a metadata.csv")
     parser.add_argument("--metadata", required=True)
     parser.add_argument("--outdir", required=True)
-    parser.add_argument("--options", default="{}", help="JSON dict overriding DEFAULT_OPTIONS")
+    parser.add_argument("--options", default="{}",
+                        help="JSON dict overriding DEFAULT_OPTIONS (the library defaults "
+                             "with --upstream-compat)")
     parser.add_argument("--no-orient", action="store_true",
                         help="keep PILOT's orientation (no standard rotation)")
+    parser.add_argument("--upstream-compat", action="store_true",
+                        help="the files of save_to_csv identical to plain instancespace: "
+                             "library default options, no jitter, no rotation")
     args = parser.parse_args(argv)
     logger.remove()
     logger.add(sys.stderr, level="INFO")
@@ -936,7 +973,7 @@ def main(argv=None):
     try:
         run_instancespace(args.metadata, args.outdir, options=json.loads(args.options),
                           progress=lambda stage: signal(f"stage {stage}"),
-                          orient=not args.no_orient)
+                          orient=not args.no_orient, upstream_compat=args.upstream_compat)
     except Exception as exc:  # noqa: BLE001 -- the message goes to the UI
         traceback.print_exc()
         signal("error " + f"{type(exc).__name__}: {exc}".replace("\n", " "))

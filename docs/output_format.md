@@ -8,7 +8,7 @@ written by `scripts/run_is_all.py`.
 
 Runs launched from the interface (the "New instance space" block) go to
 `runs/<name>_<YYYYMMDD-HHMMSS>/`, outside git. The engine runs in a subprocess
-(`python -m isaspace.engine --metadata ... --outdir ... --options '<json>' [--no-orient]`,
+(`python -m isaspace.engine --metadata ... --outdir ... --options '<json>' [--no-orient] [--upstream-compat]`,
 launched by `isaspace.ui.runner`), and the folder follows this contract with
 two extra items that the engine does not touch:
 
@@ -103,6 +103,7 @@ JSON object.
 | `auxiliary_files` | list[str] | which of `annotations.json`, `degenerate_report.csv` and `feature_info.csv` were copied |
 | `good_rule` | str | the rule of `algorithm_bin.csv`, e.g. `"good = algo_* >= 0.5"` |
 | `orientation` | dict | the standard rotation of the geometric outputs; see [Orientation](#orientation) |
+| `upstream_compat` | dict | `{"enabled", "identical_to", "options_base"}`; see [Upstream compatibility](#upstream-compatibility) |
 | `timings_s` | dict | seconds per stage (`PREPROCESSING` … `TRACE`), plus `near_duplicate_check`, `build_total` and `writing` |
 | `trace_robustness` | dict | see below |
 | `footprint_files` | dict | `{algo: {"good": file or null, "best": file or null}}`; see TRACE |
@@ -142,7 +143,8 @@ are **distinct** points ~1e-14 apart.
     perturbed z goes to `coordinates_trace.csv`; PYTHIA used the PILOT z and
     CLOISTER does not use z.
 - `reason_no_jitter` appears when the correction was turned off
-  (`fix_near_duplicates=False`).
+  (`fix_near_duplicates=False`; with `--upstream-compat` its value is
+  `"upstream_compat"`).
 
 In the four versioned datasets, only hill-valley needs the jitter (22 pairs of
 distinct positions closer than 1e-6, the closest 5.3e-14 apart; 27 points
@@ -161,7 +163,8 @@ The engine only changes these library defaults: `perf.max_perf=true`,
 the interface also set `perf` from the user's choice (there is no default
 direction there) and `sifted.k` and `trace.use_sim` from the advanced options.
 The loader uses `trace.purity` as the threshold of a "suspect" footprint and
-`perf.max_perf` for the tie rule.
+`perf.max_perf` for the tie rule. With `--upstream-compat` the engine changes
+no default: the options are the library's, overridden only by `--options`.
 
 ### `metadata.csv` (eng)
 
@@ -275,7 +278,7 @@ which instances lie in each footprint, every PYTHIA output and `pilot_r2.csv`
 
 | key | content |
 |---|---|
-| `enabled` | whether the orientation was requested (`--no-orient` / `orient=False` turn it off; on by default) |
+| `enabled` | whether the orientation was requested (`--no-orient` / `orient=False` and `--upstream-compat` turn it off; on by default) |
 | `applied` | whether a rotation was applied |
 | `convention`, `bad_instance_rule`, `target_angle_deg` (135) | the rule, in words |
 | `n_instances_bad` | instances with most algorithms bad |
@@ -292,6 +295,36 @@ In the four examples: iris rotated by 146.7° (7 bad instances, R² 0.46),
 diabetes −6.2° (192, R² 0.66), blood-transfusion-service-center 31.0° (192,
 R² 0.69) and hill-valley −151.6° (604 of 1212, R² 0.28, **weak**: warning).
 
+## Upstream compatibility
+
+`python -m isaspace.engine ... --upstream-compat` (`upstream_compat=True`)
+turns off everything the engine adds to or changes in instancespace's output,
+so that every file `Model.save_to_csv` writes (the files marked *sc* in the
+index, plus `coordinates.csv`) is **byte-identical** to a plain instancespace
+run on the same `metadata.csv` and options:
+
+- options: the library defaults overridden only by `--options` (no engine
+  defaults: without `--options`, `perf.max_perf` is false and `perf.epsilon`
+  0.2, as in instancespace);
+- no TRACE jitter (the near-duplicate pairs are still counted in
+  `trace_robustness`, with `reason_no_jitter = "upstream_compat"`), so no
+  `coordinates_trace.csv`;
+- no orientation (`orientation.reason_not_applied = "disabled (upstream_compat)"`);
+- `coordinates.csv` is the one `save_to_csv` wrote.
+
+The other files (`run_info.json`, `sifted_report.csv`, PYTHIA files, the
+space and hard footprints, the metadata copy…) are still written, from the
+same `Model`, so the interface opens the folder. The reference is
+`scripts/run_upstream_reference.py`, which runs instancespace through its
+documented path (`metadata.from_csv_file`, `options.from_json_file`,
+`InstanceSpace(...).build()`, `model.save_to_csv`) without importing
+`isaspace`; `tests/test_upstream_compat.py` checks the equality on iris and
+diabetes. instancespace's own seed (`general.seed = 0`) makes its runs
+deterministic.
+
+Without jitter, the legacy TRACE problem described in `trace_robustness`
+comes back: in hill-valley, compatible mode gives empty good footprints.
+
 ---
 
 ## Projection (PILOT)
@@ -300,7 +333,8 @@ R² 0.69) and hill-valley −151.6° (604 of 1212, R² 0.28, **weak**: warning).
 
 `Row`, `z_1`, `z_2` (float). The **PILOT z, without the TRACE correction**, in
 the standard [orientation](#orientation). It is what the interface draws. The engine rewrites this file after `save_to_csv`, which
-would write the TRACE z.
+would write the TRACE z (except with [`--upstream-compat`](#upstream-compatibility), where it is
+`save_to_csv`'s own file).
 
 ### `coordinates_trace.csv` (eng, optional)
 

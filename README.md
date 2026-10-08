@@ -129,6 +129,22 @@ The engine can also be used without the interface:
 
 `--no-orient` keeps PILOT's own orientation (see below).
 
+`--upstream-compat` turns off everything the engine adds to or changes in
+instancespace's output (its default options, the TRACE jitter and the
+orientation), so that every file instancespace's `save_to_csv` writes comes
+out byte-identical to plain instancespace on the same metadata and options;
+the extra files are still written and the interface opens the folder. Without
+`--options`, that mode uses the library defaults (`perf.max_perf` false,
+`perf.epsilon` 0.2). The reference is `scripts/run_upstream_reference.py`,
+which runs instancespace alone through its documented path:
+
+```bash
+.venv-isa/bin/python scripts/run_upstream_reference.py --metadata metadata.csv \
+    --outdir ref/ --options options.json
+```
+
+See [`docs/output_format.md`](docs/output_format.md#upstream-compatibility).
+
 ## Running ISA on a new metadata
 
 In the **New instance space** block of the sidebar:
@@ -219,7 +235,8 @@ auxiliary files). The interface reads only these folders, through
   (`coordinates.csv`); the z TRACE used is kept in `coordinates_trace.csv`,
   and everything is recorded in `run_info.json["trace_robustness"]`. Of the
   four examples, only hill-valley needs it (27 points moved, by at most
-  2.4e-6).
+  2.4e-6). With `--upstream-compat` there is no jitter, and hill-valley gets
+  the empty good footprints of plain instancespace.
 - **The performance direction is the user's choice.** Whether higher or lower
   `algo_*` is better cannot be read from the data, and the interface does not
   guess it. The <5% / >95% check detects a degenerate ε, not a wrong
@@ -258,8 +275,8 @@ With the `.venv-isa`:
 .venv-isa/bin/python -m pytest tests/ -m "not e2e and not slow"  # the fast ones, seconds
 ```
 
-214 tests: 162 fast, 8 slow (they run the engine again on the four examples)
-and 44 end-to-end.
+221 tests: 163 fast, 14 slow (they run the engine again on the examples, and
+plain instancespace for the comparison) and 44 end-to-end.
 
 - `tests/test_loader_is.py` and `tests/test_engine.py` test the loader on
   `resultados/is/` and on a synthetic folder (text labels, holes, name
@@ -268,6 +285,11 @@ and 44 end-to-end.
   itself (135°, determinant +1, the pyispace tie rule), the hard region at the
   top left in the four examples and, marked `slow`, the invariance: the four
   examples run again without the rotation and compared.
+- `tests/test_upstream_compat.py` (marked `slow`) runs
+  `scripts/run_upstream_reference.py` and the engine with `--upstream-compat`
+  on iris and diabetes (the app's options) and on iris with no options
+  (library defaults), and requires every file of `save_to_csv` to be
+  byte-identical.
 - `tests/test_upload.py` tests the upload validation, the fraction of good
   instances (checked against instancespace's own
   `compute_binary_performance` and against the written `algorithm_bin.csv`),
@@ -368,6 +390,8 @@ The tool:
   `resultados/is/`.
 - `scripts/measure_engine_time.py`: engine run time on synthetic metadata (the
   basis of the time estimate).
+- `scripts/run_upstream_reference.py`: plain instancespace (documented path,
+  no `isaspace`), the reference of `--upstream-compat`.
 - `docs/output_format.md`: the contract between the engine and the interface.
 - `tests/`: loader, engine, upload and end-to-end tests.
 - `runs/` (ignored by git): runs launched from the interface.
